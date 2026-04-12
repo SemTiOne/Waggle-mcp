@@ -1,0 +1,80 @@
+[
+  {
+    "name": "postgres_positive",
+    "node_type": "decision",
+    "first": {
+      "label": "Use Postgres",
+      "content": "We decided to use PostgreSQL for the database"
+    },
+    "second": {
+      "label": "PostgreSQL chosen",
+      "content": "The team decided on PostgreSQL for the primary database"
+    },
+    "should_dedup": true
+  },
+  {
+    "name": "dark_mode_positive",
+    "node_type": "preference",
+    "first": {
+      "label": "Dark mode preferred",
+      "content": "User prefers dark mode on every interface"
+    },
+    "second": {
+      "label": "Dark mode preference",
+      "content": "The user wants dark mode across the UI"
+    },
+    "should_dedup": true
+  },
+  {
+    "name": "fastapi_positive",
+    "node_type": "decision",
+    "first": {
+      "label": "FastAPI choice",
+      "content": "FastAPI was chosen as the backend framework"
+    },
+    "second": {
+      "label": "FastAPI selected",
+      "content": "We chose FastAPI because async support matters"
+    },
+    "should_dedup": true
+  },
+  {
+    "name": "postgres_vs_mysql_negative",
+    "node_type": "decision",
+    "first": {
+      "label": "Use Postgres",
+      "content": "We decided to use PostgreSQL for the database"
+    },
+    "second": {
+      "label": "Use MySQL",
+      "content": "We decided to use MySQL for the database"
+    },
+    "should_dedup": false
+  },
+  {
+    "name": "jwt_duration_negative",
+    "node_type": "fact",
+    "first": {
+      "label": "JWT expiry 15m",
+      "content": "JWT tokens expire after 15 minutes"
+    },
+    "second": {
+      "label": "JWT expiry 1h",
+      "content": "JWT tokens expire after 1 hour"
+    },
+    "should_dedup": false
+  },
+  {
+    "name": "redis_workload_negative",
+    "node_type": "concept",
+    "first": {
+      "label": "Redis session cache",
+      "content": "Redis caches user sessions with TTL support"
+    },
+    "second": {
+      "label": "Redis job queue",
+      "content": "Redis powers the background job queue for async work"
+    },
+    "should_dedup": false
+  }
+]

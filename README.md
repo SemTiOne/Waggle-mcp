@@ -167,30 +167,57 @@ When the agent observes a conversation, the backend runs a Pydantic-validated LL
 
 ---
 
-## Performance & Comparisons
+## Performance & Benchmarking
 
-### Micro-Benchmarks (Adversarial Dataset)
+All benchmark claims in this repository should be reproducible from checked-in fixtures plus the local harness at [scripts/benchmark_extraction.py](./scripts/benchmark_extraction.py).
 
-We are finalizing a localized [micro-benchmark script](./scripts/benchmark_extraction.py) to evaluate a suite of highly-adversarial dialogues (including noisy interruptions, context-switching, and conflicting statements) to rigorously test bounds.
+Current fixture inventory:
 
-*(Benchmarking dataset and empirical validations are currently being compiled. Preliminary baseline scripts are available in the repo, but formal numbers will be published shortly.)*
+- **Extraction:** 12 checked-in dialogue cases covering simple recall, interruptions, reversals, vague statements, conflicting statements, and mixed user/assistant signal.
+- **Retrieval:** an 8-node benchmark corpus with 6 queries covering paraphrase and temporal phrasing.
+- **Deduplication:** 6 checked-in node pairs with both true-duplicate and false-friend cases.
 
-| Task | Accuracy | Notes |
-|------|----------|-------|
-| **Structured Fact Extraction** | TBD | *Evaluating LLM extraction pipeline vs regex fallback baseline.* |
-| **Semantic Retrieval (Hit@5)** | TBD | *Evaluating using `all-MiniLM-L6-v2` against hard adversarial queries.* |
-| **Node Deduplication** | TBD | *Evaluating semantic node-merging to avoid duplicating the exact same knowledge.* |
+Run the harness locally:
 
-### Waggle vs. Standard Vector RAG (Token Efficiency)
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_extraction.py
+PYTHONPATH=src .venv/bin/python scripts/benchmark_extraction.py --extraction-backend regex
+PYTHONPATH=src .venv/bin/python scripts/benchmark_extraction.py --extraction-backend llm --ollama-model qwen2.5:7b --ollama-timeout-seconds 30
+```
 
-Unlike naive document chunk RAG (e.g., standard LangChain/LlamaIndex document stores), Waggle explicitly extracts and compacts granular graph nodes. This provides a massive token-efficiency and context-density advantage.
+Saved verification artifacts live under [`tests/artifacts`](./tests/artifacts/).
 
-*(Empirical benchmarking against LangChain VectorStore limits is currently underway.)*
+Measured results from the saved runs on this branch:
 
-| System | Tokens per Prime | Retrieval Relevance | Context Window Waste |
-|--------|------------------|---------------------|----------------------|
-| **Naive Vector RAG** | TBD | TBD | High (entire document chunks retrieved) |
-| **Waggle Memory Graph** | **TBD** | **TBD** | **Near Zero** (only explicitly verified nodes/edges) |
+| Run | Result |
+|-----|--------|
+| **MCP smoke test** | Server initialized, `store_node` succeeded, `query_graph` returned the stored node, graph stats reported `1` node / `0` edges |
+| **Regex extraction** | `4/12 = 33%` |
+| **LLM extraction** | `9/12 = 75%` using local Ollama `qwen2.5:7b` with `30s` request timeout |
+| **Retrieval** | `5/6 = 83%` |
+| **Deduplication** | `3/6 = 50%` |
+
+Deduplication threshold sweep on the checked-in fixture set:
+
+- `0.82` -> `3/6 = 50%`
+- `0.85` -> `2/6 = 33%`
+- `0.88` -> `2/6 = 33%`
+- `0.90` -> `2/6 = 33%`
+- `0.92` -> `2/6 = 33%`
+- `0.95` -> `3/6 = 50%`
+- `0.97` -> `3/6 = 50%`
+
+What these saved runs demonstrate:
+
+- regex extraction as a standalone baseline
+- Ollama-backed extraction through the same local LLM codepath used by Waggle at runtime
+- semantic retrieval over the checked-in corpus
+- deduplication accuracy over the checked-in duplicate and non-duplicate pairs
+- an end-to-end MCP store/query demo against the live server
+
+The LLM benchmark does **not** silently fall back to regex. In the first saved attempt, two cases timed out at the extractor's original `15s` Ollama request limit and the run recorded an explicit backend-unavailable error instead of publishing substituted numbers. The stable saved run on this branch uses a configurable `30s` timeout.
+
+Deduplication benchmarking uses a checked-in threshold sweep and reports the best fixture-backed threshold in the benchmark output. Product defaults remain conservative (`dedup_similarity_threshold=0.97`) until broader validation justifies changing runtime behavior.
 
 ### When Extraction Fails
 
@@ -206,9 +233,9 @@ Because the statement is entirely ambiguous, the LLM assigns a low confidence (`
 
 Graph datasets grow iteratively. How does Waggle survive long-term memory accumulation across months of multi-agent sessions?
 
-1. **Local Embeddings Are Fast:** We map semantic embeddings using `all-MiniLM-L6-v2` locally. Embedding a query takes ~25ms. No network IO bottleneck.
-2. **Neo4j Enterprise Backing:** While the default is SQLite, production deployments switch seamlessly to Neo4j, ensuring constant-time edge traversals even at 1,000,000+ edges.
-3. **Biological Decay via `access_count`:** Old nodes that are rarely retrieved naturally decay in the `prime_context` sorting algorithm, while heavily relied-upon architectural decisions stay firmly anchored at the top.
+1. **Local Embeddings Stay On-Device:** Waggle uses `all-MiniLM-L6-v2` locally, so semantic search does not require network calls or per-query API spend.
+2. **Neo4j Remains the Scale-Up Path:** SQLite is the default local backend, but the graph model can be backed by Neo4j when deployments outgrow single-file storage.
+3. **`access_count` Helps Context Ranking:** Nodes that are frequently reused rise in `prime_context`, while stale nodes naturally sink over time.
 
 ---
 

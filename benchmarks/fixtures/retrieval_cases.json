@@ -1,0 +1,76 @@
+{
+  "nodes": [
+    {
+      "label": "Database choice v1",
+      "content": "Originally chose SQLite for local development only",
+      "node_type": "decision"
+    },
+    {
+      "label": "Database choice v2",
+      "content": "Latest decision: PostgreSQL for production and local parity",
+      "node_type": "decision"
+    },
+    {
+      "label": "JWT token expiry",
+      "content": "JWT tokens expire after 15 minutes",
+      "node_type": "fact"
+    },
+    {
+      "label": "JWT refresh race",
+      "content": "Refresh token rotation has a race condition in the auth middleware",
+      "node_type": "concept"
+    },
+    {
+      "label": "dark mode preference",
+      "content": "User strongly prefers dark mode on all interfaces",
+      "node_type": "preference"
+    },
+    {
+      "label": "FastAPI backend choice",
+      "content": "Chose FastAPI over Flask because async support is critical",
+      "node_type": "decision"
+    },
+    {
+      "label": "Redis session caching",
+      "content": "Redis is used for caching session tokens with TTL support",
+      "node_type": "decision"
+    },
+    {
+      "label": "Neo4j concurrency note",
+      "content": "SQLite struggles with concurrent writes, which pushed the team toward Neo4j",
+      "node_type": "fact"
+    }
+  ],
+  "queries": [
+    {
+      "name": "database_recent_decision",
+      "query": "what did we decide recently about the database",
+      "expected_label_contains": "Database choice v2"
+    },
+    {
+      "name": "auth_token_duration",
+      "query": "how long do auth tokens last",
+      "expected_label_contains": "JWT token expiry"
+    },
+    {
+      "name": "theme_preference_paraphrase",
+      "query": "which interface theme does the user want",
+      "expected_label_contains": "dark mode preference"
+    },
+    {
+      "name": "framework_choice",
+      "query": "which backend framework did we settle on",
+      "expected_label_contains": "FastAPI backend choice"
+    },
+    {
+      "name": "session_storage",
+      "query": "how are sessions stored",
+      "expected_label_contains": "Redis session caching"
+    },
+    {
+      "name": "sqlite_reason",
+      "query": "why did we stop using sqlite",
+      "expected_label_contains": "Neo4j concurrency note"
+    }
+  ]
+}
