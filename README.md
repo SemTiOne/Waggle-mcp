@@ -247,6 +247,8 @@ Corpus: 18 nodes, 18 queries — 6 easy (direct paraphrase) and 12 hard (adversa
 
 ### Token efficiency vs. naive chunked-vector RAG
 
+*The retrieval accuracy table above measures Waggle's standalone search quality. The comparison below uses a separate multi-session corpus designed to test token efficiency against a chunked-vector baseline.*
+
 Corpus: 24 multi-session scenarios, 50 retrieval queries (`benchmarks/fixtures/comparative_eval.json`).
 
 | System | Mean tokens | Median tokens | p95 tokens | Hit@k |
