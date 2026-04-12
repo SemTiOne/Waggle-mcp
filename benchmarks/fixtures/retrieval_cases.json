@@ -39,38 +39,106 @@
       "label": "Neo4j concurrency note",
       "content": "SQLite struggles with concurrent writes, which pushed the team toward Neo4j",
       "node_type": "fact"
+    },
+    {
+      "label": "GraphQL rejected",
+      "content": "Team decided against GraphQL — REST is sufficient and the team lacks GraphQL expertise",
+      "node_type": "decision"
+    },
+    {
+      "label": "Rate limiting per tenant",
+      "content": "API rate limiting is implemented per-tenant at 120 requests per minute globally",
+      "node_type": "fact"
+    },
+    {
+      "label": "Kubernetes rollout strategy",
+      "content": "Production uses RollingUpdate strategy with a 25% max surge",
+      "node_type": "decision"
+    },
+    {
+      "label": "Embedding model choice",
+      "content": "all-MiniLM-L6-v2 chosen for local semantic embeddings, no API key needed",
+      "node_type": "decision"
     }
   ],
   "queries": [
     {
       "name": "database_recent_decision",
       "query": "what did we decide recently about the database",
-      "expected_label_contains": "Database choice v2"
+      "expected_label_contains": "Database choice v2",
+      "difficulty": "easy"
     },
     {
       "name": "auth_token_duration",
       "query": "how long do auth tokens last",
-      "expected_label_contains": "JWT token expiry"
+      "expected_label_contains": "JWT token expiry",
+      "difficulty": "easy"
     },
     {
       "name": "theme_preference_paraphrase",
       "query": "which interface theme does the user want",
-      "expected_label_contains": "dark mode preference"
+      "expected_label_contains": "dark mode preference",
+      "difficulty": "easy"
     },
     {
       "name": "framework_choice",
       "query": "which backend framework did we settle on",
-      "expected_label_contains": "FastAPI backend choice"
+      "expected_label_contains": "FastAPI backend choice",
+      "difficulty": "easy"
     },
     {
       "name": "session_storage",
       "query": "how are sessions stored",
-      "expected_label_contains": "Redis session caching"
+      "expected_label_contains": "Redis session caching",
+      "difficulty": "easy"
     },
     {
       "name": "sqlite_reason",
       "query": "why did we stop using sqlite",
-      "expected_label_contains": "Neo4j concurrency note"
+      "expected_label_contains": "Neo4j concurrency note",
+      "difficulty": "easy"
+    },
+    {
+      "name": "auth_bug_adversarial",
+      "query": "there's a bug in authentication around token refresh",
+      "expected_label_contains": "JWT refresh race",
+      "difficulty": "hard",
+      "note": "Query mentions neither 'race condition' nor 'rotation' — tests semantic generalization"
+    },
+    {
+      "name": "api_throttle_adversarial",
+      "query": "what is our policy for throttling clients",
+      "expected_label_contains": "Rate limiting per tenant",
+      "difficulty": "hard",
+      "note": "Paraphrase: throttle != rate limit, clients != tenant"
+    },
+    {
+      "name": "graphql_history",
+      "query": "did we ever consider switching away from REST",
+      "expected_label_contains": "GraphQL rejected",
+      "difficulty": "hard",
+      "note": "Query is about history of REST, which only connects to the GraphQL rejection node"
+    },
+    {
+      "name": "vector_search_implementation",
+      "query": "how does semantic search work without an API key",
+      "expected_label_contains": "Embedding model choice",
+      "difficulty": "hard",
+      "note": "No overlap with the node label — tests deep semantic resolution"
+    },
+    {
+      "name": "deployment_surge",
+      "query": "what deployment strategy are we using in prod",
+      "expected_label_contains": "Kubernetes rollout strategy",
+      "difficulty": "hard",
+      "note": "Prod == production, strategy is present but surrounded by other K8s facts"
+    },
+    {
+      "name": "db_original_choice_temporal",
+      "query": "what was the original database before we changed it",
+      "expected_label_contains": "Database choice v1",
+      "difficulty": "hard",
+      "note": "Requires temporal disambiguation — v1 not v2 — in presence of the newer decision node"
     }
   ]
 }

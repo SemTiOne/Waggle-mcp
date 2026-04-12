@@ -226,18 +226,20 @@ PYTHONPATH=src .venv/bin/python scripts/benchmark_extraction.py --systems waggle
 
 ### Extraction accuracy
 
+Fixture set: 12 dialogue pairs covering simple recall, interruptions, reversals, vague statements, and conflicting signals.
+
 | Backend | Cases | Accuracy |
 |---------|-------|----------|
 | Regex (fallback) | 12 | 33% |
 | LLM (`qwen2.5:7b`, 30s timeout) | 12 | 75% |
 
-Fixture set: 12 dialogue pairs covering simple recall, interruptions, reversals, vague statements, and conflicting signals. Saved artifacts: [`tests/artifacts/benchmark_regex.json`](./tests/artifacts/benchmark_regex.json), [`tests/artifacts/benchmark_llm.json`](./tests/artifacts/benchmark_llm.json).
-
 ### Retrieval accuracy
 
-| Corpus | Queries | Hit@k |
-|--------|---------|-------|
-| 8-node benchmark corpus | 6 | 83% |
+Fixture set: 12 nodes, 12 queries — 6 easy (direct paraphrase) and 6 hard (adversarial: semantic generalization, temporal disambiguation, domain-level misdirection).
+
+| Corpus | Easy queries | Hard queries | Overall Hit@k |
+|--------|-------------|-------------|---------------|
+| 12-node benchmark | 6/6 = 100% | 5/6 = 83% | 11/12 = **92%** |
 
 ### Token efficiency vs. chunked-vector RAG
 
@@ -253,21 +255,25 @@ This is where Waggle's graph model has a **clear, measurable advantage**. The gr
 The tradeoff is honest: the chunked baseline achieves 100% Hit@k on this corpus because the corpus is not yet hard enough to stress it. **The token efficiency advantage is real and large; the retrieval advantage is not yet demonstrated at this corpus scale.** Corpus hardening is the next evaluation step — see [`tests/artifacts/pilot_comparative.md`](./tests/artifacts/pilot_comparative.md) for details.
 
 <details>
-<summary>Deduplication threshold sweep (fixture set too small for tuning — click to expand)</summary>
+<summary>Deduplication results (22-pair fixture — click to expand)</summary>
 
-Current fixture set: 6 node pairs (3 true duplicates, 3 false friends). At 6 examples this is not large enough to tune thresholds, but the sweep is included for transparency:
+Fixture set: 22 node pairs — 11 true duplicates (synonym, paraphrase, domain-level equivalence) and 11 false friends (same domain, distinct semantics). Balanced to test both false-positive and false-negative failure modes.
 
-| Threshold | Result |
-|-----------|--------|
-| 0.82 | 3/6 = 50% |
-| 0.85 | 2/6 = 33% |
-| 0.88 | 2/6 = 33% |
-| 0.90 | 2/6 = 33% |
-| 0.92 | 2/6 = 33% |
-| 0.95 | 3/6 = 50% |
-| 0.97 | 3/6 = 50% |
+Best measured threshold: **0.82 → 12/22 = 55%**
 
-Product defaults remain conservative (`dedup_similarity_threshold=0.97`) until a larger fixture set justifies changing runtime behavior. Expanding to 20+ pairs is the next dedup evaluation step.
+Threshold sweep:
+
+| Threshold | Result | Notes |
+|-----------|--------|-------|
+| 0.82 | 12/22 = 55% | Best on this fixture set |
+| 0.85 | 11/22 = 50% | |
+| 0.88 | 11/22 = 50% | |
+| 0.90 | 10/22 = 45% | |
+| 0.92 | 10/22 = 45% | |
+| 0.95 | 11/22 = 50% | |
+| 0.97 | 11/22 = 50% | Current product default |
+
+The 55% ceiling reflects a known limitation: `all-MiniLM-L6-v2` cosine similarity alone cannot reliably distinguish near-synonym true duplicates from false friends at the sentence level. This is a planned improvement area — candidate approaches include label-pair re-ranking and bi-encoder fine-tuning on domain data.
 
 </details>
 
