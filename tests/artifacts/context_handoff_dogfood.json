@@ -7,7 +7,7 @@
   "mode": "query",
   "audience": "llm",
   "query": "What changed in extraction, what still lags in evaluation, and what should the next AI work on?",
-  "summary": "Key context: The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.; The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditio\u2026. Decisions: Hedged or conditional turns such as \"I think we should probably go with Redis\" are stored as note nodes instead of hard\u2026 Supported by Avoid premature commitment; Negated statements such as \"We are not using MongoDB anymore\" are stored as decision nodes with negated tags so the gra\u2026 Supported by Preserve user polarity. Open items: Context handoff dogfood; Query bundle summary improvement.",
+  "summary": "Key context: The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.; The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditio\u2026. Decisions: Hedged or conditional turns such as \"I think we should probably go with Redis\" are stored as note nodes instead of hard\u2026 Supported by Avoid premature commitment; Negated statements such as \"We are not using MongoDB anymore\" are stored as decision nodes with negated tags so the gra\u2026 Supported by Preserve user polarity. Open items: Context handoff dogfood; Query bundle summary improvement.",
   "nodes": [
     {
       "id": "bc529adc-301f-4fdf-92f7-906fe1297d2e",
@@ -16,7 +16,7 @@
       "project": "MCP",
       "session_id": "",
       "label": "Current comparative gap",
-      "content": "The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.",
+      "content": "The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.",
       "node_type": "fact",
       "tags": [
         "evaluation",
@@ -345,7 +345,7 @@
       "kind": "node_updated",
       "timestamp": "2026-04-18T04:57:44.948048+00:00",
       "label": "Current comparative gap",
-      "summary": "The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.",
+      "summary": "The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.",
       "node_id": "bc529adc-301f-4fdf-92f7-906fe1297d2e",
       "edge_id": null
     },

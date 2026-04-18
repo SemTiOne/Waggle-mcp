@@ -1305,31 +1305,117 @@ def run_http(config: AppConfig) -> None:
     uvicorn.run(http_app, host=config.http_host, port=config.http_port, log_level=config.log_level.lower())
 
 
+_FEATURES_GUIDE = """\
+waggle-mcp feature guide
+========================
+
+Core graph workflow
+-------------------
+1. Ingest memory
+   - observe_conversation : extract structured facts/decisions from a finished turn
+   - decompose_and_store  : split long content into linked atomic nodes
+   - store_node           : save one standalone node directly
+   - store_edge           : connect nodes explicitly when relationship is known
+
+2. Retrieve context
+   - query_graph          : semantic retrieval over nodes plus graph/replay/fusion context
+   - get_related          : walk outward from one node to inspect connected context
+   - get_node_history     : inspect one node's evidence, validity, and linked context
+   - timeline             : see recent graph events chronologically
+   - prime_context        : build a compact briefing for a new model/session
+
+3. Resolve conflicts
+   - list_conflicts       : list contradiction/update edges
+   - resolve_conflict     : mark a conflict as resolved without deleting history
+
+4. Export / handoff
+   - export_context_bundle : create markdown/json context packages for another model
+   - export_markdown_vault : export one-file-per-node markdown for manual editing
+   - import_markdown_vault : re-import edited markdown vault files
+   - export_graph_backup   : portable json backup
+   - import_graph_backup   : restore backup into the active backend
+   - export_graph_html     : interactive graph visualization
+
+5. Inspect the graph
+   - get_stats            : node/edge counts and high-level graph stats
+   - list_context_scopes  : available project / agent / session scopes
+   - get_topics           : topic clusters via community detection
+   - graph_diff           : recently changed nodes and edges
+
+Important behavior
+------------------
+- store_node alone does not create edges.
+- Edges come from:
+  - explicit store_edge calls
+  - observe_conversation extraction
+  - decompose_and_store inferred structure
+  - automatic contradiction/update detection in some cases
+- The graph-aware tools are what bring connected context back to the model:
+  - query_graph
+  - get_related
+  - get_node_history
+  - prime_context
+  - export_context_bundle
+
+Common workflows
+----------------
+- Quick setup:
+  waggle-mcp init
+
+- Start the MCP server:
+  waggle-mcp serve
+
+- Export a handoff bundle:
+  waggle-mcp export-context-bundle --mode query --query "why did we choose PostgreSQL?"
+
+- Edit memory as markdown:
+  waggle-mcp export-markdown-vault --root-path ./vault
+  waggle-mcp import-markdown-vault --root-path ./vault
+"""
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="waggle-mcp")
+    parser = argparse.ArgumentParser(
+        prog="waggle-mcp",
+        description=(
+            "Persistent graph memory for MCP-compatible AI clients. "
+            "Use 'waggle-mcp features' for a detailed guide to ingestion, graph retrieval, "
+            "conflict handling, and export workflows."
+        ),
+        epilog="Examples: 'waggle-mcp init', 'waggle-mcp serve', 'waggle-mcp features'.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser("serve")
+    subparsers.add_parser("serve", help="Run the MCP server using the configured stdio or HTTP transport.")
 
-    create_tenant = subparsers.add_parser("create-tenant")
+    create_tenant = subparsers.add_parser("create-tenant", help="Create or update a tenant record in the active backend.")
     create_tenant.add_argument("--tenant-id", required=True)
     create_tenant.add_argument("--name", default="")
 
-    create_api_key = subparsers.add_parser("create-api-key")
+    create_api_key = subparsers.add_parser("create-api-key", help="Issue an API key for a tenant.")
     create_api_key.add_argument("--tenant-id", required=True)
     create_api_key.add_argument("--name", default="")
 
-    list_api_keys = subparsers.add_parser("list-api-keys")
+    list_api_keys = subparsers.add_parser("list-api-keys", help="List API keys for a tenant.")
     list_api_keys.add_argument("--tenant-id", required=True)
 
-    revoke_api_key = subparsers.add_parser("revoke-api-key")
+    revoke_api_key = subparsers.add_parser("revoke-api-key", help="Revoke an API key.")
     revoke_api_key.add_argument("--api-key-id", required=True)
 
-    migrate_sqlite = subparsers.add_parser("migrate-sqlite")
+    migrate_sqlite = subparsers.add_parser("migrate-sqlite", help="Export a SQLite graph and import it into the configured Neo4j backend.")
     migrate_sqlite.add_argument("--db-path", required=True)
     migrate_sqlite.add_argument("--tenant-id", required=True)
 
-    export_context_bundle = subparsers.add_parser("export-context-bundle")
+    export_context_bundle = subparsers.add_parser(
+        "export-context-bundle",
+        help="Export a markdown/json context package for another model or conversation.",
+        description=(
+            "Build a portable context bundle from the graph. "
+            "Use mode=query for question-focused handoff, mode=prime for a fresh-session brief, "
+            "and mode=graph for a broader graph export."
+        ),
+    )
     export_context_bundle.add_argument("--mode", choices=["prime", "query", "graph"], default="prime")
     export_context_bundle.add_argument("--query", default="")
     export_context_bundle.add_argument("--project", default="")
@@ -1345,16 +1431,27 @@ def _build_parser() -> argparse.ArgumentParser:
     export_context_bundle.add_argument("--include-source-prompt", action=argparse.BooleanOptionalAction, default=False)
     export_context_bundle.add_argument("--audience", choices=["llm", "human"], default="llm")
 
-    export_markdown_vault = subparsers.add_parser("export-markdown-vault")
+    export_markdown_vault = subparsers.add_parser(
+        "export-markdown-vault",
+        help="Export graph memory as an Obsidian-style markdown vault.",
+    )
     export_markdown_vault.add_argument("--root-path", required=True)
     export_markdown_vault.add_argument("--project", default="")
     export_markdown_vault.add_argument("--agent-id", default="")
     export_markdown_vault.add_argument("--session-id", default="")
 
-    import_markdown_vault = subparsers.add_parser("import-markdown-vault")
+    import_markdown_vault = subparsers.add_parser(
+        "import-markdown-vault",
+        help="Import an edited markdown vault back into the graph.",
+    )
     import_markdown_vault.add_argument("--root-path", required=True)
 
     subparsers.add_parser("init", help="Interactive setup wizard — configure an MCP client to use waggle-mcp.")
+    subparsers.add_parser(
+        "features",
+        help="Explain the main tools, graph workflows, and how connected context reaches the model.",
+        description="Print a detailed guide to the waggle-mcp feature surface.",
+    )
     return parser
 
 
@@ -1437,6 +1534,9 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
     if args.command == "import-markdown-vault":
         imported = backend.import_markdown_vault(root_path=args.root_path)
         print(json.dumps(imported.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "features":
+        print(_FEATURES_GUIDE)
         return 0
     raise ValidationFailure(f"Unknown command: {args.command}")
 
@@ -1656,9 +1756,12 @@ def main() -> None:
     args = parser.parse_args()
     command = args.command or "serve"
 
-    # init runs before AppConfig so it works with no env vars set
+    # Commands that should work before full backend/app initialization.
     if command == "init":
         sys.exit(_run_init())
+    if command == "features":
+        print(_FEATURES_GUIDE)
+        return
 
     config = AppConfig.from_env()
     log_stream = sys.stderr if config.transport == "stdio" else sys.stdout

@@ -6,7 +6,7 @@
     "retrieval_queries": 18,
     "dedup_cases": 22,
     "comparative_scenarios": 27,
-    "comparative_queries": 69,
+    "comparative_queries": 66,
     "query_stress_cases": 40
   },
   "metrics": [
@@ -176,7 +176,7 @@
   "comparative": {
     "corpus": {
       "scenario_count": 27,
-      "query_count": 69,
+      "query_count": 66,
       "task_families": [
         "adversarial_paraphrase",
         "cross_scenario_synthesis",
@@ -189,13 +189,13 @@
     },
     "systems": {
       "waggle": {
-        "case_count": 69,
-        "hit_at_k": 0.8840579710144928,
-        "exact_support": 0.7681159420289855,
+        "case_count": 66,
+        "hit_at_k": 0.8787878787878788,
+        "exact_support": 0.7878787878787878,
         "context_tokens": {
-          "mean": 58.507246376811594,
-          "median": 42,
-          "p95": 111.6
+          "mean": 56.25757575757576,
+          "median": 42.0,
+          "p95": 109.0
         },
         "by_task_family": {
           "adversarial_paraphrase": {
@@ -204,9 +204,9 @@
             "exact_support": 0.75
           },
           "cross_scenario_synthesis": {
-            "case_count": 10,
-            "hit_at_k": 0.9,
-            "exact_support": 0.2
+            "case_count": 8,
+            "hit_at_k": 0.875,
+            "exact_support": 0.125
           },
           "decision_delta": {
             "case_count": 4,
@@ -219,9 +219,9 @@
             "exact_support": 0.8888888888888888
           },
           "multi_session_change": {
-            "case_count": 12,
+            "case_count": 11,
             "hit_at_k": 1.0,
-            "exact_support": 0.9166666666666666
+            "exact_support": 1.0
           },
           "temporal_latest": {
             "case_count": 2,
@@ -250,9 +250,9 @@
             ]
           },
           "graph": {
-            "case_count": 30,
-            "hit_at_k": 0.9333333333333333,
-            "exact_support": 0.6666666666666666,
+            "case_count": 27,
+            "hit_at_k": 0.9259259259259259,
+            "exact_support": 0.7037037037037037,
             "max_depths": [
               1,
               2
@@ -303,13 +303,13 @@
         }
       },
       "rag_naive": {
-        "case_count": 69,
+        "case_count": 66,
         "hit_at_k": 1.0,
-        "exact_support": 0.9710144927536232,
+        "exact_support": 0.9848484848484849,
         "context_tokens": {
-          "mean": 150.8695652173913,
-          "median": 151,
-          "p95": 165.0
+          "mean": 150.16666666666666,
+          "median": 149.0,
+          "p95": 161.0
         },
         "by_task_family": {
           "adversarial_paraphrase": {
@@ -318,9 +318,9 @@
             "exact_support": 1.0
           },
           "cross_scenario_synthesis": {
-            "case_count": 10,
+            "case_count": 8,
             "hit_at_k": 1.0,
-            "exact_support": 0.9
+            "exact_support": 0.875
           },
           "decision_delta": {
             "case_count": 4,
@@ -333,9 +333,9 @@
             "exact_support": 1.0
           },
           "multi_session_change": {
-            "case_count": 12,
+            "case_count": 11,
             "hit_at_k": 1.0,
-            "exact_support": 0.9166666666666666
+            "exact_support": 1.0
           },
           "temporal_latest": {
             "case_count": 2,
@@ -355,6 +355,61 @@
           "top_k": 5,
           "lexical_weight": 0.0,
           "temporal_weight": 0.0
+        }
+      },
+      "rag_tuned": {
+        "case_count": 66,
+        "hit_at_k": 1.0,
+        "exact_support": 1.0,
+        "context_tokens": {
+          "mean": 242.6969696969697,
+          "median": 242.5,
+          "p95": 259.75
+        },
+        "by_task_family": {
+          "adversarial_paraphrase": {
+            "case_count": 4,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "cross_scenario_synthesis": {
+            "case_count": 8,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "decision_delta": {
+            "case_count": 4,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "factual_recall": {
+            "case_count": 18,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "multi_session_change": {
+            "case_count": 11,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "temporal_latest": {
+            "case_count": 2,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          },
+          "temporal_original": {
+            "case_count": 19,
+            "hit_at_k": 1.0,
+            "exact_support": 1.0
+          }
+        },
+        "by_failure_label": {},
+        "parameters": {
+          "chunk_size_words": 80,
+          "overlap_words": 10,
+          "top_k": 8,
+          "lexical_weight": 0.18,
+          "temporal_weight": 1e-09
         }
       }
     },
@@ -1366,8 +1421,8 @@
         "retrieved_ids": [
           "ctx_postgres_new",
           "db_postgres_prod",
-          "db_sqlite_local",
           "ctx_postgres_decision",
+          "db_sqlite_local",
           "search_pg_trigram"
         ],
         "gold_support_ids": [
@@ -1405,9 +1460,10 @@
         "task_family": "cross_scenario_synthesis",
         "hit_at_k": true,
         "exact_support": false,
-        "context_tokens": 49,
+        "context_tokens": 67,
         "retrieved_ids": [
-          "notify_email_slack"
+          "notify_email_slack",
+          "notify_email_only"
         ],
         "gold_support_ids": [
           "sync_webhooks_fallback",
@@ -1465,8 +1521,8 @@
         "retrieved_ids": [
           "mobile_offline_queue",
           "mobile_no_offline",
-          "ctx_realtime_req",
-          "ctx_fastapi_decision"
+          "ctx_fastapi_decision",
+          "ctx_realtime_req"
         ],
         "gold_support_ids": [
           "mobile_offline_queue"
@@ -1569,70 +1625,6 @@
         "gold_support_ids": [
           "queue_celery_redis",
           "queue_temporal"
-        ],
-        "failure_label": "",
-        "retrieval_mode": "graph",
-        "max_depth": 2
-      },
-      {
-        "query_id": "q67",
-        "system": "waggle",
-        "task_family": "cross_scenario_synthesis",
-        "hit_at_k": true,
-        "exact_support": false,
-        "context_tokens": 115,
-        "retrieved_ids": [
-          "ctx_postgres_decision",
-          "db_postgres_prod",
-          "ctx_postgres_new",
-          "search_pg_trigram"
-        ],
-        "gold_support_ids": [
-          "ctx_postgres_decision",
-          "ctx_acid_reason"
-        ],
-        "failure_label": "",
-        "retrieval_mode": "graph",
-        "max_depth": 2
-      },
-      {
-        "query_id": "q68",
-        "system": "waggle",
-        "task_family": "multi_session_change",
-        "hit_at_k": true,
-        "exact_support": false,
-        "context_tokens": 111,
-        "retrieved_ids": [
-          "search_pg_trigram",
-          "db_postgres_prod",
-          "ctx_postgres_new",
-          "ctx_postgres_decision"
-        ],
-        "gold_support_ids": [
-          "ctx_sqlite_old",
-          "ctx_postgres_new",
-          "ctx_concurrency_reason"
-        ],
-        "failure_label": "",
-        "retrieval_mode": "graph",
-        "max_depth": 2
-      },
-      {
-        "query_id": "q69",
-        "system": "waggle",
-        "task_family": "cross_scenario_synthesis",
-        "hit_at_k": true,
-        "exact_support": true,
-        "context_tokens": 116,
-        "retrieved_ids": [
-          "ctx_fastapi_decision",
-          "ctx_realtime_req",
-          "ctx_concurrency_fact"
-        ],
-        "gold_support_ids": [
-          "ctx_fastapi_decision",
-          "ctx_realtime_req",
-          "ctx_concurrency_fact"
         ],
         "failure_label": "",
         "retrieval_mode": "graph",
@@ -3065,75 +3057,1649 @@
         "max_depth": 0
       },
       {
-        "query_id": "q67",
-        "system": "rag_naive",
-        "task_family": "cross_scenario_synthesis",
+        "query_id": "q01",
+        "system": "rag_tuned",
+        "task_family": "temporal_latest",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 165,
+        "context_tokens": 238,
         "retrieved_ids": [
-          "ctx_postgres_decision",
-          "ctx_acid_reason",
           "db_postgres_prod",
-          "access_rbac_abac",
+          "ctx_sqlite_old",
           "ctx_postgres_new",
           "ctx_concurrency_reason",
-          "retention_audit_90d"
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "db_sqlite_local",
+          "export_csv_parquet",
+          "analytics_streaming",
+          "export_csv_only"
         ],
         "gold_support_ids": [
+          "db_postgres_prod"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q02",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 242,
+        "retrieved_ids": [
+          "db_sqlite_local",
+          "db_postgres_prod",
+          "ctx_sqlite_old",
+          "docs_bm25",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "billing_paddle",
+          "access_rbac_abac",
           "ctx_postgres_decision",
           "ctx_acid_reason"
         ],
+        "gold_support_ids": [
+          "db_sqlite_local"
+        ],
         "failure_label": "",
         "retrieval_mode": "",
         "max_depth": 0
       },
       {
-        "query_id": "q68",
-        "system": "rag_naive",
+        "query_id": "q03",
+        "system": "rag_tuned",
         "task_family": "multi_session_change",
         "hit_at_k": true,
-        "exact_support": false,
-        "context_tokens": 165,
+        "exact_support": true,
+        "context_tokens": 239,
         "retrieved_ids": [
           "db_postgres_prod",
-          "ctx_postgres_decision",
-          "ctx_acid_reason",
+          "ctx_sqlite_old",
           "ctx_postgres_new",
           "ctx_concurrency_reason",
-          "search_pg_trigram",
-          "deploy_cloud_run"
+          "obs_traces_slos",
+          "db_sqlite_local",
+          "onboarding_wizard",
+          "search_opensearch",
+          "ctx_postgres_decision",
+          "ctx_acid_reason"
         ],
         "gold_support_ids": [
+          "db_sqlite_local",
+          "db_postgres_prod"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q04",
+        "system": "rag_tuned",
+        "task_family": "temporal_latest",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 233,
+        "retrieved_ids": [
+          "auth_jwt_15m",
+          "auth_jwt_1h",
+          "retention_audit_90d",
+          "retention_logs_30d",
+          "incident_autorollback_5xx",
+          "notify_email_only",
+          "cache_redis_sessions",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "auth_jwt_1h"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q05",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 219,
+        "retrieved_ids": [
+          "auth_jwt_15m",
+          "auth_jwt_1h",
+          "retention_logs_30d",
+          "retention_audit_90d",
+          "onboarding_long_form",
+          "cache_redis_sessions",
+          "incident_no_autorollback",
+          "billing_paddle"
+        ],
+        "gold_support_ids": [
+          "auth_jwt_15m"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q06",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 223,
+        "retrieved_ids": [
+          "auth_jwt_1h",
+          "auth_jwt_15m",
+          "retention_logs_30d",
+          "retention_audit_90d",
+          "incident_no_autorollback",
+          "access_rbac_only",
+          "cache_keydb_sessions",
+          "cache_redis_sessions"
+        ],
+        "gold_support_ids": [
+          "auth_jwt_15m",
+          "auth_jwt_1h"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q07",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 238,
+        "retrieved_ids": [
+          "cache_redis_sessions",
+          "cache_keydb_sessions",
+          "frontend_nextjs",
+          "frontend_react_spa",
+          "queue_temporal",
+          "auth_jwt_1h",
+          "queue_celery_redis",
+          "mobile_offline_queue"
+        ],
+        "gold_support_ids": [
+          "cache_keydb_sessions"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q08",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 228,
+        "retrieved_ids": [
+          "cache_redis_sessions",
+          "cache_keydb_sessions",
+          "frontend_react_spa",
+          "frontend_nextjs",
+          "queue_celery_redis",
+          "storage_s3_standard",
+          "queue_temporal",
+          "sync_polling"
+        ],
+        "gold_support_ids": [
+          "cache_redis_sessions"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q09",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 236,
+        "retrieved_ids": [
+          "cache_redis_sessions",
+          "cache_keydb_sessions",
+          "frontend_nextjs",
+          "frontend_react_spa",
+          "queue_temporal",
+          "auth_jwt_1h",
+          "auth_jwt_15m",
+          "incident_autorollback_5xx"
+        ],
+        "gold_support_ids": [
+          "cache_redis_sessions",
+          "cache_keydb_sessions"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q10",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 242,
+        "retrieved_ids": [
+          "search_opensearch",
+          "docs_algolia",
+          "docs_bm25",
+          "search_pg_trigram",
           "ctx_sqlite_old",
+          "db_sqlite_local",
+          "db_postgres_prod",
           "ctx_postgres_new",
           "ctx_concurrency_reason"
         ],
+        "gold_support_ids": [
+          "search_opensearch"
+        ],
         "failure_label": "",
         "retrieval_mode": "",
         "max_depth": 0
       },
       {
-        "query_id": "q69",
-        "system": "rag_naive",
-        "task_family": "cross_scenario_synthesis",
+        "query_id": "q11",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 169,
+        "context_tokens": 247,
         "retrieved_ids": [
+          "search_pg_trigram",
+          "search_opensearch",
+          "docs_algolia",
+          "docs_bm25",
+          "ctx_sqlite_old",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "db_postgres_prod",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason"
+        ],
+        "gold_support_ids": [
+          "search_pg_trigram"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q12",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 244,
+        "retrieved_ids": [
+          "search_opensearch",
+          "docs_algolia",
+          "docs_bm25",
+          "search_pg_trigram",
+          "ctx_sqlite_old",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "schema_alembic",
+          "db_sqlite_local"
+        ],
+        "gold_support_ids": [
+          "search_pg_trigram",
+          "search_opensearch"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q13",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 258,
+        "retrieved_ids": [
+          "frontend_nextjs",
+          "frontend_react_spa",
           "ctx_fastapi_decision",
           "ctx_realtime_req",
           "ctx_concurrency_fact",
           "ctx_postgres_decision",
           "ctx_acid_reason",
-          "schema_alembic",
-          "access_rbac_abac",
+          "queue_temporal",
+          "queue_celery_redis",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "analytics_streaming"
+        ],
+        "gold_support_ids": [
+          "frontend_nextjs"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q14",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 242,
+        "retrieved_ids": [
+          "frontend_nextjs",
+          "frontend_react_spa",
+          "queue_celery_redis",
+          "onboarding_wizard",
+          "obs_traces_slos",
+          "db_postgres_prod",
+          "cache_redis_sessions",
           "queue_temporal"
         ],
         "gold_support_ids": [
+          "frontend_react_spa"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q15",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 249,
+        "retrieved_ids": [
+          "frontend_nextjs",
+          "frontend_react_spa",
+          "onboarding_wizard",
+          "queue_temporal",
+          "db_postgres_prod",
+          "cache_redis_sessions",
+          "queue_celery_redis",
+          "flags_control_plane"
+        ],
+        "gold_support_ids": [
+          "frontend_react_spa",
+          "frontend_nextjs"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q16",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 249,
+        "retrieved_ids": [
+          "analytics_streaming",
+          "analytics_batch",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "db_postgres_prod",
+          "obs_traces_slos",
+          "queue_temporal",
+          "export_csv_parquet",
+          "queue_celery_redis"
+        ],
+        "gold_support_ids": [
+          "analytics_streaming"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q17",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 234,
+        "retrieved_ids": [
+          "analytics_batch",
+          "analytics_streaming",
+          "search_pg_trigram",
+          "sync_polling",
+          "obs_traces_slos",
+          "obs_logs_only",
+          "billing_stripe",
+          "onboarding_wizard"
+        ],
+        "gold_support_ids": [
+          "analytics_batch"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q18",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 251,
+        "retrieved_ids": [
+          "analytics_streaming",
+          "analytics_batch",
+          "queue_temporal",
+          "db_postgres_prod",
+          "obs_traces_slos",
+          "sync_polling",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason"
+        ],
+        "gold_support_ids": [
+          "analytics_batch",
+          "analytics_streaming"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q19",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 259,
+        "retrieved_ids": [
+          "notify_email_only",
+          "notify_email_slack",
+          "sync_webhooks_fallback",
+          "sync_polling",
+          "support_manual_bh",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact",
+          "queue_temporal",
+          "cache_keydb_sessions"
+        ],
+        "gold_support_ids": [
+          "notify_email_slack"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q20",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 250,
+        "retrieved_ids": [
+          "notify_email_only",
+          "notify_email_slack",
+          "sync_webhooks_fallback",
+          "flags_control_plane",
+          "sync_polling",
+          "frontend_react_spa",
+          "obs_traces_slos",
+          "onboarding_wizard"
+        ],
+        "gold_support_ids": [
+          "notify_email_only"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q21",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 245,
+        "retrieved_ids": [
+          "notify_email_only",
+          "notify_email_slack",
+          "sync_webhooks_fallback",
+          "sync_polling",
+          "incident_autorollback_5xx",
+          "auth_jwt_15m",
+          "queue_temporal",
+          "mobile_offline_queue"
+        ],
+        "gold_support_ids": [
+          "notify_email_only",
+          "notify_email_slack"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q22",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 232,
+        "retrieved_ids": [
+          "billing_stripe",
+          "billing_paddle",
+          "ctx_sqlite_old",
+          "support_manual_bh",
+          "access_rbac_abac",
+          "queue_celery_redis",
+          "mobile_offline_queue",
+          "onboarding_wizard"
+        ],
+        "gold_support_ids": [
+          "billing_paddle"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q23",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 239,
+        "retrieved_ids": [
+          "billing_stripe",
+          "billing_paddle",
+          "docs_bm25",
+          "support_auto_sev1",
+          "ctx_sqlite_old",
+          "onboarding_wizard",
+          "support_manual_bh",
+          "search_pg_trigram"
+        ],
+        "gold_support_ids": [
+          "billing_stripe"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q24",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 244,
+        "retrieved_ids": [
+          "billing_paddle",
+          "billing_stripe",
+          "storage_s3_standard",
+          "support_manual_bh",
+          "docs_bm25",
+          "access_rbac_abac",
+          "retention_audit_90d",
+          "schema_alembic"
+        ],
+        "gold_support_ids": [
+          "billing_stripe",
+          "billing_paddle"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q25",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 244,
+        "retrieved_ids": [
+          "deploy_ecs",
+          "deploy_cloud_run",
+          "incident_no_autorollback",
+          "schema_manual",
+          "frontend_nextjs",
+          "db_postgres_prod",
+          "flags_control_plane",
+          "docs_algolia"
+        ],
+        "gold_support_ids": [
+          "deploy_cloud_run"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q26",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 236,
+        "retrieved_ids": [
+          "deploy_ecs",
+          "deploy_cloud_run",
+          "incident_no_autorollback",
+          "schema_manual",
+          "docs_algolia",
+          "export_csv_only",
+          "flags_control_plane",
+          "incident_autorollback_5xx"
+        ],
+        "gold_support_ids": [
+          "deploy_ecs"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q27",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 242,
+        "retrieved_ids": [
+          "incident_no_autorollback",
+          "deploy_ecs",
+          "deploy_cloud_run",
+          "incident_autorollback_5xx",
+          "schema_manual",
+          "flags_env_vars",
+          "onboarding_wizard",
+          "flags_control_plane"
+        ],
+        "gold_support_ids": [
+          "deploy_ecs",
+          "deploy_cloud_run"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q28",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 241,
+        "retrieved_ids": [
+          "docs_algolia",
+          "docs_bm25",
+          "search_opensearch",
+          "search_pg_trigram",
+          "ctx_sqlite_old",
+          "obs_traces_slos",
+          "support_auto_sev1",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "docs_bm25"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q29",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 242,
+        "retrieved_ids": [
+          "docs_algolia",
+          "search_opensearch",
+          "docs_bm25",
+          "search_pg_trigram",
+          "ctx_sqlite_old",
+          "support_auto_sev1",
+          "onboarding_wizard",
+          "obs_traces_slos"
+        ],
+        "gold_support_ids": [
+          "docs_algolia"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q30",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 230,
+        "retrieved_ids": [
+          "docs_algolia",
+          "search_opensearch",
+          "docs_bm25",
+          "search_pg_trigram",
+          "storage_s3_standard",
+          "ctx_sqlite_old",
+          "schema_manual",
+          "schema_alembic"
+        ],
+        "gold_support_ids": [
+          "docs_algolia",
+          "docs_bm25"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q31",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 237,
+        "retrieved_ids": [
+          "access_rbac_abac",
+          "access_rbac_only",
+          "ctx_sqlite_old",
+          "queue_temporal",
+          "onboarding_wizard",
+          "obs_traces_slos",
+          "retention_audit_90d",
           "ctx_fastapi_decision",
           "ctx_realtime_req",
           "ctx_concurrency_fact"
+        ],
+        "gold_support_ids": [
+          "access_rbac_abac"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q32",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 228,
+        "retrieved_ids": [
+          "access_rbac_abac",
+          "access_rbac_only",
+          "onboarding_wizard",
+          "obs_traces_slos",
+          "docs_algolia",
+          "queue_temporal",
+          "billing_paddle",
+          "ctx_sqlite_old"
+        ],
+        "gold_support_ids": [
+          "access_rbac_only"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q33",
+        "system": "rag_tuned",
+        "task_family": "multi_session_change",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 253,
+        "retrieved_ids": [
+          "access_rbac_only",
+          "access_rbac_abac",
+          "flags_control_plane",
+          "retention_audit_90d",
+          "queue_temporal",
+          "onboarding_wizard",
+          "obs_traces_slos",
+          "support_manual_bh"
+        ],
+        "gold_support_ids": [
+          "access_rbac_only",
+          "access_rbac_abac"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q34",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 250,
+        "retrieved_ids": [
+          "mobile_offline_queue",
+          "mobile_no_offline",
+          "queue_temporal",
+          "db_sqlite_local",
+          "auth_jwt_1h",
+          "sync_webhooks_fallback",
+          "storage_s3_tiering",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason"
+        ],
+        "gold_support_ids": [
+          "mobile_offline_queue"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q35",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 259,
+        "retrieved_ids": [
+          "mobile_no_offline",
+          "mobile_offline_queue",
+          "notify_email_only",
+          "storage_s3_tiering",
+          "export_csv_only",
+          "support_manual_bh",
+          "support_auto_sev1",
+          "sync_webhooks_fallback"
+        ],
+        "gold_support_ids": [
+          "mobile_no_offline"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q36",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 231,
+        "retrieved_ids": [
+          "export_csv_only",
+          "export_csv_parquet",
+          "ingest_ndjson",
+          "db_postgres_prod",
+          "billing_paddle",
+          "storage_s3_standard",
+          "ingest_csv",
+          "storage_s3_tiering"
+        ],
+        "gold_support_ids": [
+          "export_csv_parquet"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q37",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 227,
+        "retrieved_ids": [
+          "export_csv_only",
+          "export_csv_parquet",
+          "ingest_ndjson",
+          "billing_paddle",
+          "db_postgres_prod",
+          "schema_manual",
+          "deploy_ecs",
+          "storage_s3_standard"
+        ],
+        "gold_support_ids": [
+          "export_csv_only"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q38",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 229,
+        "retrieved_ids": [
+          "incident_no_autorollback",
+          "incident_autorollback_5xx",
+          "auth_jwt_1h",
+          "deploy_cloud_run",
+          "queue_temporal",
+          "schema_manual",
+          "deploy_ecs",
+          "retention_logs_30d"
+        ],
+        "gold_support_ids": [
+          "incident_autorollback_5xx"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q39",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 233,
+        "retrieved_ids": [
+          "incident_no_autorollback",
+          "incident_autorollback_5xx",
+          "schema_manual",
+          "deploy_cloud_run",
+          "deploy_ecs",
+          "retention_logs_30d",
+          "mobile_no_offline",
+          "schema_alembic"
+        ],
+        "gold_support_ids": [
+          "incident_no_autorollback"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q40",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 224,
+        "retrieved_ids": [
+          "retention_audit_90d",
+          "retention_logs_30d",
+          "auth_jwt_15m",
+          "obs_logs_only",
+          "auth_jwt_1h",
+          "obs_traces_slos",
+          "queue_temporal",
+          "incident_autorollback_5xx"
+        ],
+        "gold_support_ids": [
+          "retention_audit_90d"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q41",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 223,
+        "retrieved_ids": [
+          "retention_logs_30d",
+          "retention_audit_90d",
+          "auth_jwt_15m",
+          "obs_logs_only",
+          "auth_jwt_1h",
+          "incident_autorollback_5xx",
+          "cache_keydb_sessions",
+          "analytics_batch"
+        ],
+        "gold_support_ids": [
+          "retention_logs_30d"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q42",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 257,
+        "retrieved_ids": [
+          "queue_temporal",
+          "queue_celery_redis",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "db_postgres_prod",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "onboarding_wizard",
+          "obs_traces_slos"
+        ],
+        "gold_support_ids": [
+          "queue_temporal"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q43",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 252,
+        "retrieved_ids": [
+          "queue_celery_redis",
+          "queue_temporal",
+          "obs_traces_slos",
+          "flags_control_plane",
+          "db_postgres_prod",
+          "support_auto_sev1",
+          "onboarding_wizard",
+          "frontend_react_spa"
+        ],
+        "gold_support_ids": [
+          "queue_celery_redis"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q44",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 237,
+        "retrieved_ids": [
+          "schema_manual",
+          "db_postgres_prod",
+          "schema_alembic",
+          "queue_temporal",
+          "deploy_ecs",
+          "db_sqlite_local",
+          "ctx_sqlite_old",
+          "flags_control_plane"
+        ],
+        "gold_support_ids": [
+          "schema_alembic"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q45",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 237,
+        "retrieved_ids": [
+          "schema_manual",
+          "db_postgres_prod",
+          "schema_alembic",
+          "deploy_ecs",
+          "queue_temporal",
+          "ctx_sqlite_old",
+          "db_sqlite_local",
+          "flags_control_plane"
+        ],
+        "gold_support_ids": [
+          "schema_manual"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q46",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 261,
+        "retrieved_ids": [
+          "onboarding_wizard",
+          "onboarding_long_form",
+          "flags_control_plane",
+          "obs_traces_slos",
+          "schema_alembic",
+          "analytics_streaming",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "onboarding_wizard"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q47",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 261,
+        "retrieved_ids": [
+          "onboarding_wizard",
+          "onboarding_long_form",
+          "schema_alembic",
+          "obs_traces_slos",
+          "flags_control_plane",
+          "support_auto_sev1",
+          "analytics_streaming",
+          "queue_celery_redis"
+        ],
+        "gold_support_ids": [
+          "onboarding_long_form"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q48",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 251,
+        "retrieved_ids": [
+          "flags_control_plane",
+          "flags_env_vars",
+          "obs_traces_slos",
+          "onboarding_wizard",
+          "queue_temporal",
+          "search_opensearch",
+          "sync_polling",
+          "access_rbac_abac"
+        ],
+        "gold_support_ids": [
+          "flags_control_plane"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q49",
+        "system": "rag_tuned",
+        "task_family": "temporal_original",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 245,
+        "retrieved_ids": [
+          "flags_control_plane",
+          "flags_env_vars",
+          "obs_traces_slos",
+          "onboarding_wizard",
+          "search_opensearch",
+          "queue_temporal",
+          "retention_audit_90d",
+          "sync_polling"
+        ],
+        "gold_support_ids": [
+          "flags_env_vars"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q50",
+        "system": "rag_tuned",
+        "task_family": "factual_recall",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 249,
+        "retrieved_ids": [
+          "sync_webhooks_fallback",
+          "mobile_offline_queue",
+          "sync_polling",
+          "queue_temporal",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact",
+          "storage_s3_tiering",
+          "obs_traces_slos",
+          "export_csv_parquet"
+        ],
+        "gold_support_ids": [
+          "sync_webhooks_fallback"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q51",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 234,
+        "retrieved_ids": [
+          "db_postgres_prod",
+          "ctx_sqlite_old",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "db_sqlite_local",
+          "obs_traces_slos",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "export_csv_parquet",
+          "deploy_cloud_run"
+        ],
+        "gold_support_ids": [
+          "db_postgres_prod",
+          "deploy_cloud_run"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q52",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 249,
+        "retrieved_ids": [
+          "mobile_no_offline",
+          "mobile_offline_queue",
+          "auth_jwt_1h",
+          "obs_traces_slos",
+          "sync_webhooks_fallback",
+          "access_rbac_abac",
+          "cache_keydb_sessions",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "auth_jwt_1h",
+          "mobile_offline_queue"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q53",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 250,
+        "retrieved_ids": [
+          "obs_traces_slos",
+          "support_auto_sev1",
+          "db_postgres_prod",
+          "incident_autorollback_5xx",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "queue_temporal",
+          "incident_no_autorollback",
+          "retention_audit_90d"
+        ],
+        "gold_support_ids": [
+          "obs_traces_slos",
+          "incident_autorollback_5xx"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q54",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 244,
+        "retrieved_ids": [
+          "export_csv_parquet",
+          "analytics_streaming",
+          "ingest_ndjson",
+          "db_postgres_prod",
+          "export_csv_only",
+          "ingest_csv",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "ingest_ndjson",
+          "export_csv_parquet"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q55",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 237,
+        "retrieved_ids": [
+          "schema_manual",
+          "queue_temporal",
+          "db_postgres_prod",
+          "schema_alembic",
+          "export_csv_parquet",
+          "ctx_sqlite_old",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact",
+          "obs_traces_slos"
+        ],
+        "gold_support_ids": [
+          "queue_temporal",
+          "schema_alembic"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q56",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 244,
+        "retrieved_ids": [
+          "retention_audit_90d",
+          "storage_s3_tiering",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "analytics_batch",
+          "retention_logs_30d",
+          "db_postgres_prod",
+          "access_rbac_abac",
+          "export_csv_parquet"
+        ],
+        "gold_support_ids": [
+          "storage_s3_tiering",
+          "retention_audit_90d"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q57",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 243,
+        "retrieved_ids": [
+          "flags_control_plane",
+          "flags_env_vars",
+          "access_rbac_only",
+          "access_rbac_abac",
+          "obs_traces_slos",
+          "retention_audit_90d",
+          "obs_logs_only",
+          "queue_temporal"
+        ],
+        "gold_support_ids": [
+          "flags_control_plane",
+          "access_rbac_abac"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q58",
+        "system": "rag_tuned",
+        "task_family": "cross_scenario_synthesis",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 260,
+        "retrieved_ids": [
+          "sync_polling",
+          "queue_temporal",
+          "sync_webhooks_fallback",
+          "notify_email_slack",
+          "obs_traces_slos",
+          "analytics_streaming",
+          "notify_email_only",
+          "ctx_fastapi_decision",
+          "ctx_realtime_req",
+          "ctx_concurrency_fact"
+        ],
+        "gold_support_ids": [
+          "sync_webhooks_fallback",
+          "notify_email_slack"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q59",
+        "system": "rag_tuned",
+        "task_family": "adversarial_paraphrase",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 245,
+        "retrieved_ids": [
+          "db_sqlite_local",
+          "db_postgres_prod",
+          "ctx_sqlite_old",
+          "ctx_postgres_new",
+          "ctx_concurrency_reason",
+          "export_csv_parquet",
+          "search_opensearch",
+          "analytics_streaming",
+          "ctx_postgres_decision",
+          "ctx_acid_reason"
+        ],
+        "gold_support_ids": [
+          "db_postgres_prod"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q60",
+        "system": "rag_tuned",
+        "task_family": "adversarial_paraphrase",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 257,
+        "retrieved_ids": [
+          "obs_traces_slos",
+          "ctx_postgres_decision",
+          "ctx_acid_reason",
+          "deploy_cloud_run",
+          "db_postgres_prod",
+          "billing_paddle",
+          "storage_s3_tiering",
+          "analytics_streaming",
+          "onboarding_wizard"
+        ],
+        "gold_support_ids": [
+          "deploy_cloud_run"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q61",
+        "system": "rag_tuned",
+        "task_family": "adversarial_paraphrase",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 240,
+        "retrieved_ids": [
+          "mobile_no_offline",
+          "mobile_offline_queue",
+          "db_sqlite_local",
+          "sync_webhooks_fallback",
+          "obs_logs_only",
+          "notify_email_only",
+          "incident_no_autorollback",
+          "search_pg_trigram"
+        ],
+        "gold_support_ids": [
+          "mobile_offline_queue"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q62",
+        "system": "rag_tuned",
+        "task_family": "adversarial_paraphrase",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 252,
+        "retrieved_ids": [
+          "incident_no_autorollback",
+          "incident_autorollback_5xx",
+          "mobile_no_offline",
+          "sync_webhooks_fallback",
+          "mobile_offline_queue",
+          "notify_email_only",
+          "support_manual_bh",
+          "cache_keydb_sessions"
+        ],
+        "gold_support_ids": [
+          "incident_autorollback_5xx"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q63",
+        "system": "rag_tuned",
+        "task_family": "decision_delta",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 241,
+        "retrieved_ids": [
+          "search_opensearch",
+          "docs_algolia",
+          "search_pg_trigram",
+          "docs_bm25",
+          "ctx_sqlite_old",
+          "obs_traces_slos",
+          "queue_temporal",
+          "support_auto_sev1"
+        ],
+        "gold_support_ids": [
+          "search_pg_trigram",
+          "search_opensearch"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q64",
+        "system": "rag_tuned",
+        "task_family": "decision_delta",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 243,
+        "retrieved_ids": [
+          "billing_stripe",
+          "billing_paddle",
+          "support_manual_bh",
+          "support_auto_sev1",
+          "incident_autorollback_5xx",
+          "mobile_offline_queue",
+          "sync_polling",
+          "docs_bm25"
+        ],
+        "gold_support_ids": [
+          "billing_stripe",
+          "billing_paddle"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q65",
+        "system": "rag_tuned",
+        "task_family": "decision_delta",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 261,
+        "retrieved_ids": [
+          "onboarding_wizard",
+          "onboarding_long_form",
+          "obs_traces_slos",
+          "flags_control_plane",
+          "support_auto_sev1",
+          "schema_alembic",
+          "analytics_streaming",
+          "cache_keydb_sessions"
+        ],
+        "gold_support_ids": [
+          "onboarding_long_form",
+          "onboarding_wizard"
+        ],
+        "failure_label": "",
+        "retrieval_mode": "",
+        "max_depth": 0
+      },
+      {
+        "query_id": "q66",
+        "system": "rag_tuned",
+        "task_family": "decision_delta",
+        "hit_at_k": true,
+        "exact_support": true,
+        "context_tokens": 258,
+        "retrieved_ids": [
+          "queue_celery_redis",
+          "queue_temporal",
+          "obs_traces_slos",
+          "onboarding_wizard",
+          "db_postgres_prod",
+          "flags_control_plane",
+          "frontend_nextjs",
+          "support_auto_sev1"
+        ],
+        "gold_support_ids": [
+          "queue_celery_redis",
+          "queue_temporal"
         ],
         "failure_label": "",
         "retrieval_mode": "",
@@ -3387,9 +4953,9 @@
         "hit_at_k": 0.975,
         "exact_support": 0.975,
         "context_tokens": {
-          "mean": 63.3,
-          "median": 52.0,
-          "p95": 109.0
+          "mean": 63.875,
+          "median": 42.0,
+          "p95": 102.34999999999998
         },
         "by_task_family": {
           "adversarial_paraphrase": {
@@ -3836,8 +5402,8 @@
         "exact_support": true,
         "context_tokens": 37,
         "retrieved_ids": [
-          "schema_alembic",
-          "schema_manual"
+          "schema_manual",
+          "schema_alembic"
         ],
         "gold_support_ids": [
           "schema_alembic"
@@ -4268,8 +5834,8 @@
         "exact_support": true,
         "context_tokens": 37,
         "retrieved_ids": [
-          "schema_alembic",
-          "schema_manual"
+          "schema_manual",
+          "schema_alembic"
         ],
         "gold_support_ids": [
           "schema_alembic"
@@ -4338,12 +5904,12 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 109,
+        "context_tokens": 102,
         "retrieved_ids": [
           "db_postgres_prod",
-          "queue_temporal",
-          "search_pg_trigram",
           "ctx_postgres_new",
+          "db_sqlite_local",
+          "search_pg_trigram",
           "queue_celery_redis"
         ],
         "gold_support_ids": [
@@ -4377,13 +5943,13 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 111,
+        "context_tokens": 100,
         "retrieved_ids": [
           "search_pg_trigram",
           "search_opensearch",
           "queue_celery_redis",
           "db_postgres_prod",
-          "ctx_postgres_new"
+          "db_sqlite_local"
         ],
         "gold_support_ids": [
           "search_opensearch"
@@ -4418,8 +5984,8 @@
         "exact_support": true,
         "context_tokens": 41,
         "retrieved_ids": [
-          "cache_redis_sessions",
-          "cache_keydb_sessions"
+          "cache_keydb_sessions",
+          "cache_redis_sessions"
         ],
         "gold_support_ids": [
           "cache_keydb_sessions"
@@ -4434,11 +6000,10 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 43,
+        "context_tokens": 29,
         "retrieved_ids": [
-          "auth_jwt_15m",
-          "auth_jwt_1h",
-          "retention_logs_30d"
+          "retention_logs_30d",
+          "auth_jwt_1h"
         ],
         "gold_support_ids": [
           "auth_jwt_1h"
@@ -4453,11 +6018,10 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 56,
+        "context_tokens": 39,
         "retrieved_ids": [
           "mobile_offline_queue",
-          "sync_webhooks_fallback",
-          "mobile_no_offline"
+          "sync_webhooks_fallback"
         ],
         "gold_support_ids": [
           "mobile_offline_queue"
@@ -4511,11 +6075,13 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 54,
+        "context_tokens": 90,
         "retrieved_ids": [
           "flags_control_plane",
+          "incident_autorollback_5xx",
+          "incident_no_autorollback",
           "flags_env_vars",
-          "incident_no_autorollback"
+          "sync_polling"
         ],
         "gold_support_ids": [
           "flags_control_plane"
@@ -4532,9 +6098,9 @@
         "exact_support": true,
         "context_tokens": 98,
         "retrieved_ids": [
+          "incident_autorollback_5xx",
           "export_csv_parquet",
           "incident_no_autorollback",
-          "incident_autorollback_5xx",
           "storage_s3_tiering",
           "flags_env_vars"
         ],
@@ -4553,11 +6119,11 @@
         "exact_support": true,
         "context_tokens": 109,
         "retrieved_ids": [
-          "queue_temporal",
           "queue_celery_redis",
-          "ctx_postgres_new",
+          "queue_temporal",
           "search_pg_trigram",
-          "db_postgres_prod"
+          "db_postgres_prod",
+          "ctx_postgres_new"
         ],
         "gold_support_ids": [
           "queue_temporal"
@@ -4575,9 +6141,9 @@
         "context_tokens": 93,
         "retrieved_ids": [
           "schema_alembic",
+          "incident_autorollback_5xx",
           "incident_no_autorollback",
           "schema_manual",
-          "incident_autorollback_5xx",
           "flags_env_vars"
         ],
         "gold_support_ids": [
@@ -4593,11 +6159,13 @@
         "task_family": "adversarial_paraphrase",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 50,
+        "context_tokens": 90,
         "retrieved_ids": [
+          "incident_autorollback_5xx",
           "docs_bm25",
           "incident_no_autorollback",
-          "docs_algolia"
+          "schema_manual",
+          "flags_env_vars"
         ],
         "gold_support_ids": [
           "docs_bm25"
@@ -4707,9 +6275,9 @@
         "exact_support": true,
         "context_tokens": 95,
         "retrieved_ids": [
+          "incident_autorollback_5xx",
           "storage_s3_tiering",
           "export_csv_parquet",
-          "incident_autorollback_5xx",
           "incident_no_autorollback",
           "ingest_csv"
         ],
@@ -4726,12 +6294,10 @@
         "task_family": "temporal_latest",
         "hit_at_k": false,
         "exact_support": false,
-        "context_tokens": 74,
+        "context_tokens": 39,
         "retrieved_ids": [
           "support_auto_sev1",
-          "obs_traces_slos",
-          "support_manual_bh",
-          "obs_logs_only"
+          "obs_traces_slos"
         ],
         "gold_support_ids": [
           "db_postgres_prod"
@@ -4748,8 +6314,8 @@
         "exact_support": true,
         "context_tokens": 29,
         "retrieved_ids": [
-          "auth_jwt_15m",
-          "auth_jwt_1h"
+          "auth_jwt_1h",
+          "auth_jwt_15m"
         ],
         "gold_support_ids": [
           "auth_jwt_1h"
@@ -4784,11 +6350,11 @@
         "exact_support": true,
         "context_tokens": 100,
         "retrieved_ids": [
-          "search_pg_trigram",
           "search_opensearch",
+          "search_pg_trigram",
           "db_postgres_prod",
-          "queue_celery_redis",
-          "db_sqlite_local"
+          "db_sqlite_local",
+          "queue_celery_redis"
         ],
         "gold_support_ids": [
           "search_opensearch"
@@ -4821,13 +6387,13 @@
         "task_family": "temporal_latest",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 96,
+        "context_tokens": 92,
         "retrieved_ids": [
-          "analytics_streaming",
           "incident_autorollback_5xx",
+          "analytics_streaming",
           "analytics_batch",
           "incident_no_autorollback",
-          "flags_env_vars"
+          "sync_polling"
         ],
         "gold_support_ids": [
           "analytics_streaming"
@@ -4899,8 +6465,8 @@
         "context_tokens": 88,
         "retrieved_ids": [
           "docs_bm25",
-          "docs_algolia",
           "incident_autorollback_5xx",
+          "docs_algolia",
           "schema_manual",
           "incident_no_autorollback"
         ],
@@ -4976,8 +6542,8 @@
         "exact_support": true,
         "context_tokens": 84,
         "retrieved_ids": [
-          "incident_autorollback_5xx",
           "incident_no_autorollback",
+          "incident_autorollback_5xx",
           "flags_env_vars",
           "schema_manual",
           "sync_polling"
@@ -5018,8 +6584,8 @@
           "queue_temporal",
           "search_pg_trigram",
           "queue_celery_redis",
-          "ctx_postgres_new",
-          "db_postgres_prod"
+          "db_postgres_prod",
+          "ctx_postgres_new"
         ],
         "gold_support_ids": [
           "queue_temporal"
@@ -5073,11 +6639,13 @@
         "task_family": "temporal_latest",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 54,
+        "context_tokens": 90,
         "retrieved_ids": [
           "flags_control_plane",
           "flags_env_vars",
-          "incident_no_autorollback"
+          "incident_autorollback_5xx",
+          "incident_no_autorollback",
+          "sync_polling"
         ],
         "gold_support_ids": [
           "flags_control_plane"
@@ -5092,13 +6660,13 @@
         "task_family": "temporal_latest",
         "hit_at_k": true,
         "exact_support": true,
-        "context_tokens": 89,
+        "context_tokens": 88,
         "retrieved_ids": [
           "sync_webhooks_fallback",
           "incident_autorollback_5xx",
           "sync_polling",
           "incident_no_autorollback",
-          "flags_env_vars"
+          "storage_s3_standard"
         ],
         "gold_support_ids": [
           "sync_webhooks_fallback"

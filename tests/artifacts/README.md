@@ -124,11 +124,8 @@ These invariants define a failed benchmark run:
 
 ---
 
-## Historical artifacts
+## Supporting artifacts
 
 | File | Notes |
 |------|-------|
-| `benchmark_regex.json` | Earlier regex-only run (8 nodes / 6 queries corpus — now superseded) |
-| `pilot_comparative.json` | Initial 3-system comparative pilot |
-| `pilot_comparative.md` | Human-readable summary of pilot |
 | `smoke_test_output.txt` | MCP server smoke test: store + query round-trip |

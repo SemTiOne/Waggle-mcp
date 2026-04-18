@@ -85,6 +85,53 @@ env     = {
 
 A pre-filled example is in [codex_config.example.toml](../codex_config.example.toml).
 
+## Using Waggle In MCP Clients
+
+After Waggle is installed as an MCP server, the normal workflow is conversational. Users usually do not run `waggle-mcp` commands during everyday work. They talk to the agent normally, and the agent decides when to call Waggle's MCP tools.
+
+### Codex
+
+- Work in a normal Codex thread.
+- Codex can use `observe_conversation`, `store_node`, `store_edge`, `query_graph`, and `prime_context` to persist and retrieve memory.
+- Later tasks can recover connected graph context even when the original thread is no longer in the current window.
+
+### Claude Code
+
+- Claude Code can use Waggle as a persistent MCP memory layer.
+- It is useful for carrying decisions, constraints, and project state across sessions.
+- `prime_context` and `export_context_bundle` are especially useful when starting a new task or handing work to another model.
+
+### Cursor
+
+- Cursor can use Waggle over MCP while you work in the editor.
+- That lets the agent recover earlier facts and connected rationale instead of relying only on the current chat.
+
+### Antigravity
+
+- Antigravity can use Waggle as a persistent graph memory backend over MCP.
+- Conversation memory can be extracted with `observe_conversation`, and linked context can be exported with `export_context_bundle`.
+
+### Important behavior
+
+- `store_node` saves one node directly, but does not create edges by itself.
+- Edges come from:
+  - explicit `store_edge` calls
+  - `observe_conversation`
+  - `decompose_and_store`
+  - automatic contradiction/update detection in some cases
+- The graph-aware retrieval tools are what return connected context to the model:
+  - `query_graph`
+  - `get_related`
+  - `get_node_history`
+  - `prime_context`
+  - `export_context_bundle`
+
+For a built-in CLI explainer, run:
+
+```bash
+waggle-mcp features
+```
+
 ## Environment variables
 
 ### Core

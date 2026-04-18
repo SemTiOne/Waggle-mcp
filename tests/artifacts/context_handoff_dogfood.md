@@ -12,7 +12,7 @@ Use this as authoritative imported context. Prefer the summary, decisions, contr
 
 ## Memory Summary
 
-Key context: The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.; The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditio…. Decisions: Hedged or conditional turns such as "I think we should probably go with Redis" are stored as note nodes instead of hard… Supported by Avoid premature commitment; Negated statements such as "We are not using MongoDB anymore" are stored as decision nodes with negated tags so the gra… Supported by Preserve user polarity. Open items: Context handoff dogfood; Query bundle summary improvement.
+Key context: The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.; The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditio…. Decisions: Hedged or conditional turns such as "I think we should probably go with Redis" are stored as note nodes instead of hard… Supported by Avoid premature commitment; Negated statements such as "We are not using MongoDB anymore" are stored as decision nodes with negated tags so the gra… Supported by Preserve user polarity. Open items: Context handoff dogfood; Query bundle summary improvement.
 
 ## Key Facts By Node Type
 
@@ -21,7 +21,7 @@ Key context: The comparative benchmark still measures 88% Hit@k and 73% exact su
 - "Negated tool choice policy" (created 2026-04-18, updated 2026-04-18): Negated statements such as "We are not using MongoDB anymore" are stored as decision nodes with negated tags so the graph preserves polarity.
 
 ### Fact
-- "Current comparative gap" (created 2026-04-18, updated 2026-04-18): The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
+- "Current comparative gap" (created 2026-04-18, updated 2026-04-18): The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
 - "Extraction corpus expansion" (created 2026-04-18, updated 2026-04-18): The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditional choices, and negated tool decisions.
 - "Avoid premature commitment" (created 2026-04-18, updated 2026-04-18): Tentative language should not be promoted into durable decision memory until it becomes explicit.
 - "Preserve user polarity" (created 2026-04-18, updated 2026-04-18): Missing negation would store the opposite of what the user said and silently corrupt the graph.
@@ -56,7 +56,7 @@ Key context: The comparative benchmark still measures 88% Hit@k and 73% exact su
 - [node_updated] `2026-04-18T04:57:44.973644+00:00` Negated tool choice policy — Negated statements such as "We are not using MongoDB anymore" are stored as decision nodes with negated tags so the graph preserves polarity.
 - [node_updated] `2026-04-18T04:57:44.967185+00:00` Avoid premature commitment — Tentative language should not be promoted into durable decision memory until it becomes explicit.
 - [node_updated] `2026-04-18T04:57:44.960594+00:00` Hedged statements policy — Hedged or conditional turns such as "I think we should probably go with Redis" are stored as note nodes instead of hard decisions.
-- [node_updated] `2026-04-18T04:57:44.948048+00:00` Current comparative gap — The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
+- [node_updated] `2026-04-18T04:57:44.948048+00:00` Current comparative gap — The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
 - [node_created] `2026-04-18T04:57:41.917355+00:00` Extraction corpus expansion — The deterministic extraction corpus was expanded from 18 to 25 cases and now covers favorite-language phrasing, multi-clause turns, hedged statements, conditional choices, and negated tool decisions.
 
 ## Relationship Map
@@ -77,7 +77,7 @@ Key context: The comparative benchmark still measures 88% Hit@k and 73% exact su
   - type: `fact`
   - project: MCP
   - label: Current comparative gap
-  - content: The comparative benchmark still measures 88% Hit@k and 73% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
+  - content: The comparative benchmark still measures 88% Hit@k and 79% exact support for Waggle on 27 scenarios and 66 queries, despite the extraction improvements.
   - tags: evaluation, comparative
   - created_at: 2026-04-18T04:57:44.948046+00:00
   - updated_at: 2026-04-18T04:57:44.948048+00:00

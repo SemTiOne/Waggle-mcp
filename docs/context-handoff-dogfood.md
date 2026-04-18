@@ -18,7 +18,7 @@ Generated artifacts:
 
 The exported bundle was built from current Waggle project facts, including:
 - extraction corpus expansion from `18` to `25` cases
-- current comparative benchmark gap at `88% Hit@k / 73% exact`
+- current comparative benchmark gap at `88% Hit@k / 79% exact`
 - the new policy for hedged or conditional turns
 - the new policy for negated tool choices
 - open work on the LongMemEval methodology note and handoff verification

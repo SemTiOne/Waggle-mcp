@@ -15,9 +15,7 @@ Waggle is designed as a structured memory system, not a raw transcript store. Ou
 | Benchmark | Dataset Size | Primary Metric | Command | Held-out? |
 |-----------|--------------|----------------|---------|-----------|
 | **LongMemEval** | 500 questions | R@5, Exact@5 | `scripts/benchmark_longmemeval.py` | Optional (--held-out) |
-| **LoCoMo** | 1,986 questions | R@10, R@5 | `scripts/benchmark_locomo.py` | No |
 | **ConvoMem** | 250 items | Avg Recall | `scripts/benchmark_convomem.py` | No |
-| **MemBench** | 8,500 items | R@5 | `scripts/benchmark_membench.py` | No |
 
 ### Held-out Evaluation
 
@@ -29,6 +27,5 @@ For **LongMemEval**, we support a held-out methodology using the `--held-out` fl
 
 For detailed reproduction instructions, see:
 - [benchmarks/longmemeval/README.md](../benchmarks/longmemeval/README.md)
-- [benchmarks/locomo/README.md](../benchmarks/locomo/README.md)
 - [benchmarks/convomem/README.md](../benchmarks/convomem/README.md)
-- [benchmarks/membench/README.md](../benchmarks/membench/README.md)
+- [bench/README.md](../bench/README.md)
