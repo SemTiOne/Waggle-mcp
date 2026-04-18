@@ -63,6 +63,134 @@ Manual MCP setup examples for **Codex**, **Claude Code**, **Cursor**, and **Anti
 
 ---
 
+## Setting Up waggle as an MCP Server
+
+> **One-time install:** `pip install waggle-mcp` — no API key, no cloud account, no Docker required for local use.
+
+Pick your client below, paste the config, and restart. That's it.
+
+### Antigravity
+
+Open the agent panel → `···` menu → **Manage MCP Servers** → **View raw config**, then add:
+
+```json
+{
+  "mcpServers": {
+    "waggle": {
+      "command": "python",
+      "args": ["-m", "waggle.server"],
+      "env": {
+        "WAGGLE_TRANSPORT": "stdio",
+        "WAGGLE_BACKEND": "sqlite",
+        "WAGGLE_DB_PATH": "~/.waggle/memory.db",
+        "WAGGLE_DEFAULT_TENANT_ID": "local-default",
+        "WAGGLE_MODEL": "all-MiniLM-L6-v2"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Config file location:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "waggle": {
+      "command": "python",
+      "args": ["-m", "waggle.server"],
+      "env": {
+        "WAGGLE_TRANSPORT": "stdio",
+        "WAGGLE_BACKEND": "sqlite",
+        "WAGGLE_DB_PATH": "~/.waggle/memory.db",
+        "WAGGLE_DEFAULT_TENANT_ID": "local-default",
+        "WAGGLE_MODEL": "all-MiniLM-L6-v2"
+      }
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add waggle \
+  --env WAGGLE_TRANSPORT=stdio \
+  --env WAGGLE_BACKEND=sqlite \
+  --env WAGGLE_DB_PATH=~/.waggle/memory.db \
+  --env WAGGLE_DEFAULT_TENANT_ID=local-default \
+  --env WAGGLE_MODEL=all-MiniLM-L6-v2 \
+  -- python -m waggle.server
+```
+
+### Cursor
+
+`Cursor Settings → Features → MCP Servers → + Add`:
+- **Command:** `python`
+- **Args:** `-m waggle.server`
+- **Env vars:** same block as Claude Desktop above
+
+Or drop a `.cursor/mcp.json` at the project root using the same `mcpServers` JSON shape.
+
+### Codex
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.waggle]
+command = "python"
+args    = ["-m", "waggle.server"]
+env     = {
+  WAGGLE_TRANSPORT         = "stdio",
+  WAGGLE_BACKEND           = "sqlite",
+  WAGGLE_DB_PATH           = "~/.waggle/memory.db",
+  WAGGLE_DEFAULT_TENANT_ID = "local-default",
+  WAGGLE_MODEL             = "all-MiniLM-L6-v2"
+}
+```
+
+### `python` not on PATH?
+
+Replace `"command": "python"` with the full interpreter path:
+
+```bash
+which python3   # macOS / Linux
+where python    # Windows
+```
+
+e.g. `/usr/local/bin/python3` or `C:\Python311\python.exe`.
+
+### Verify it works
+
+After restarting your client, ask the agent:
+
+> *"Store a note: we're using PostgreSQL for this project."*
+
+Then open a **fresh session** and ask:
+
+> *"What database are we using?"*
+
+If it remembers — you're live. 🎉
+
+### Quick-reference tool table
+
+| Ask the agent… | Tool called |
+|---|---|
+| *"Remember that…"* | `observe_conversation` |
+| *"What do you know about X?"* | `query_graph` |
+| *"What changed recently?"* | `graph_diff` |
+| *"Summarize context for a new session"* | `prime_context` |
+| *"Show all stored topics"* | `get_topics` |
+| *"Export my memory to a file"* | `export_graph_backup` |
+
+For the full tool surface and environment variable reference see [docs/reference.md](./docs/reference.md).
+
+---
+
 ## Using It In MCP Clients
 
 Once Waggle is installed in an MCP client, people normally do not run `waggle-mcp` commands by hand during everyday use. They talk to the agent normally, and the agent uses Waggle's MCP tools to store and retrieve memory.
