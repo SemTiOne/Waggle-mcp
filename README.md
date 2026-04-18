@@ -15,6 +15,11 @@
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT"/>
 </p>
 
+<p align="center">
+  <a href="https://glama.ai/mcp/servers/Abhigyan-Shekhar/Waggle-mcp"><img src="https://glama.ai/mcp/servers/Abhigyan-Shekhar/Waggle-mcp/badges/card.svg" alt="Waggle-mcp MCP server"/></a>
+  <a href="https://glama.ai/mcp/servers/Abhigyan-Shekhar/Waggle-mcp"><img src="https://glama.ai/mcp/servers/Abhigyan-Shekhar/Waggle-mcp/badges/score.svg" alt="Waggle-mcp MCP server score"/></a>
+</p>
+
 ---
 
 ## Why waggle-mcp?
