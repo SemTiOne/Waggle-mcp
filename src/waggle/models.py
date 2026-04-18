@@ -33,6 +33,15 @@ class RelationType(str, Enum):
     SIMILAR_TO = "similar_to"
 
 
+def normalize_relationship(value: Any) -> str:
+    if isinstance(value, RelationType):
+        return value.value
+    text = str(value).strip().lower()
+    if not text:
+        raise ValueError("Relationship cannot be empty.")
+    return text
+
+
 class Node(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     tenant_id: str = ""
@@ -117,7 +126,7 @@ class Edge(BaseModel):
     tenant_id: str = ""
     source_id: str
     target_id: str
-    relationship: RelationType
+    relationship: str
     weight: float = Field(default=1.0, ge=0.0, le=1.0)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
@@ -129,6 +138,11 @@ class Edge(BaseModel):
         if not text:
             raise ValueError("Node IDs cannot be empty.")
         return text
+
+    @field_validator("relationship", mode="before")
+    @classmethod
+    def _validate_relationship(cls, value: Any) -> str:
+        return normalize_relationship(value)
 
 
 class ConnectedNodeStat(BaseModel):
@@ -156,6 +170,9 @@ class GraphStats(BaseModel):
 class SubgraphResult(BaseModel):
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    replay_hits: list["ReplayHit"] = Field(default_factory=list)
+    fusion_hits: list["FusionHit"] = Field(default_factory=list)
+    retrieval_mode: str = "graph"
     query: str = ""
     total_nodes_in_graph: int = 0
 
@@ -163,7 +180,7 @@ class SubgraphResult(BaseModel):
 class ConflictRecord(BaseModel):
     other_node_id: str
     other_node_label: str
-    relationship: RelationType = RelationType.CONTRADICTS
+    relationship: str = RelationType.CONTRADICTS.value
     reason: str
 
 
@@ -271,11 +288,13 @@ class ContextBundle(BaseModel):
     tenant_id: str = ""
     project: str = ""
     mode: str = "prime"
+    retrieval_mode: str = "graph"
     audience: str = "llm"
     query: str = ""
     summary: str = ""
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    replay_hits: list["ReplayHit"] = Field(default_factory=list)
     timeline: list[ContextTimelineItem] = Field(default_factory=list)
     stats: GraphStats = Field(default_factory=GraphStats)
     render_hints: ContextRenderHints = Field(default_factory=ContextRenderHints)
@@ -285,6 +304,7 @@ class ContextBundleExportResult(BaseModel):
     tenant_id: str = ""
     project: str = ""
     mode: str = "prime"
+    retrieval_mode: str = "graph"
     query: str = ""
     summary: str = ""
     markdown_path: str | None = None
@@ -307,6 +327,26 @@ class TopicResult(BaseModel):
     total_clusters: int = 0
 
 
+class MarkdownVaultExportResult(BaseModel):
+    root_path: str
+    tenant_id: str = ""
+    project: str = ""
+    node_count: int = 0
+    edge_count: int = 0
+    files_written: list[str] = Field(default_factory=list)
+
+
+class MarkdownVaultImportResult(BaseModel):
+    root_path: str
+    tenant_id: str = ""
+    nodes_created: int = 0
+    nodes_updated: int = 0
+    edges_created: int = 0
+    edges_deleted: int = 0
+    stub_nodes_created: int = 0
+    conflicts: list[str] = Field(default_factory=list)
+
+
 class TenantRecord(BaseModel):
     tenant_id: str
     name: str = ""
@@ -327,3 +367,58 @@ class ApiKeyRecord(BaseModel):
 class ApiKeyCreateResult(BaseModel):
     record: ApiKeyRecord
     raw_api_key: str
+
+
+class TranscriptRecord(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    tenant_id: str = ""
+    agent_id: str = ""
+    project: str = ""
+    session_id: str = ""
+    observed_at: datetime = Field(default_factory=utc_now)
+    turn_index: int = 0
+    role: str = ""
+    transcript_text: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("agent_id", "project", "session_id", "role", mode="before")
+    @classmethod
+    def _normalize_scope_fields(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @field_validator("transcript_text", mode="before")
+    @classmethod
+    def _validate_transcript_text(cls, value: Any) -> str:
+        if value is None:
+            raise ValueError("Transcript text is required.")
+        text = str(value).strip()
+        if not text:
+            raise ValueError("Transcript text cannot be empty.")
+        return text
+
+
+class ReplayHit(BaseModel):
+    score: float = 0.0
+    session_id: str = ""
+    turn_index: int = 0
+    role: str = ""
+    transcript_text: str = ""
+    transcript_snippet: str = ""
+    observed_at: datetime = Field(default_factory=utc_now)
+
+
+class FusionHit(BaseModel):
+    content: str
+    score: float = 0.0
+    source_lane: str = "graph"
+    graph_rank: int | None = None
+    replay_rank: int | None = None
+    fused_rank: int = 0
+    node_id: str | None = None
+    node_type: str | None = None
+    edges: list[dict[str, Any]] | None = None
+    session_id: str | None = None
+    transcript_snippet: str | None = None
+    turn_index: int | None = None

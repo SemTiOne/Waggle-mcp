@@ -36,7 +36,7 @@ All numbers from `benchmark_current.json`.
 
 | Backend | Cases | Accuracy |
 |---------|-------|----------|
-| Deterministic conversation parser | 12 | 50% |
+| Deterministic conversation parser | 12 | 100% |
 
 ### Retrieval
 

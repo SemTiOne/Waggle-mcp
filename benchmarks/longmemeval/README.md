@@ -28,6 +28,17 @@ Run the heuristic hybrid baseline:
   --output benchmarks/longmemeval/results_graph_hybrid.json
 ```
 
+To control where prepared-entry cache files are written:
+
+```bash
+.venv/bin/python scripts/benchmark_longmemeval.py \
+  benchmarks/longmemeval/longmemeval_s_cleaned.json \
+  --mode graph_hybrid \
+  --cache-dir /tmp/longmemeval-cache
+```
+
+Each run prints whether the prepared-session cache was `cold` or `warm`, and the saved JSON artifact records the cache status, cache key, cache path, and prepared-entry counts.
+
 ## Current measured result
 
 Measured locally on the full `500`-question `s` split:
@@ -35,13 +46,16 @@ Measured locally on the full `500`-question `s` split:
 | Mode | R@5 | Exact@5 |
 |------|-----|---------|
 | `graph_raw` | `97.0%` | `76.4%` |
+| `graph_hybrid` | `95.8%` | `82.0%` |
 
 Raw output artifact:
 
 - [`results_graph_raw.json`](./results_graph_raw.json)
+- [`results_graph_hybrid.json`](./results_graph_hybrid.json)
 
 ## Notes
 
-- This adapter preloads each LongMemEval entry into a temporary Waggle graph and evaluates retrieval against the known session IDs.
+- This adapter now prepares each LongMemEval entry in memory, batches unique session embeddings, and caches them per run instead of rebuilding a fresh graph per case.
+- By default cache files are written to `benchmarks/longmemeval/.cache/`; warm reruns reuse the prepared-session cache and skip re-embedding the same split.
 - `graph_raw` is the fairest current comparison to raw retrieval systems because it does not add reranking.
-- The current `graph_hybrid` runner is significantly slower on the full 500-case split and should be treated as an exploratory mode rather than a fast CI benchmark.
+- `graph_hybrid` now uses the same prepared-session cache and the full 500-case artifact is saved, but it should still be treated as exploratory rather than a fast CI benchmark.

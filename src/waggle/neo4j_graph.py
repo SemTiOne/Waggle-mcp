@@ -35,6 +35,13 @@ from waggle.intelligence import (
     tokenize_text,
     within_time_window,
 )
+from waggle.markdown_vault import (
+    evidence_from_lines,
+    iter_vault_documents,
+    render_node_document,
+    slugify,
+    vault_filename,
+)
 from waggle.models import (
     ApiKeyCreateResult,
     ApiKeyRecord,
@@ -48,18 +55,24 @@ from waggle.models import (
     ContextTimelineItem,
     Edge,
     EvidenceRecord,
+    FusionHit,
     GraphDiffResult,
     GraphStats,
     ImportResult,
+    MarkdownVaultExportResult,
+    MarkdownVaultImportResult,
     Node,
     NodeHistoryResult,
     NodeStoreResult,
     NodeType,
     ObservationResult,
     PrimeContextResult,
+    ReplayHit,
     RecentNodeStat,
     RelationType,
     SubgraphResult,
+    TranscriptRecord,
+    normalize_relationship,
     TenantRecord,
     TimelineResult,
     TopicCluster,
@@ -93,6 +106,32 @@ def _decode_metadata(raw: Any) -> dict[str, Any]:
             return {}
         return decoded if isinstance(decoded, dict) else {}
     return {}
+
+
+def _encode_evidence_records(records: list[EvidenceRecord]) -> str:
+    return json.dumps([record.model_dump(mode="json") for record in records], sort_keys=True)
+
+
+def _decode_evidence_records(raw: Any) -> list[EvidenceRecord]:
+    if raw in (None, ""):
+        return []
+    if isinstance(raw, str):
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    elif isinstance(raw, list):
+        payload = raw
+    else:
+        return []
+    if not isinstance(payload, list):
+        return []
+    records: list[EvidenceRecord] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        records.append(EvidenceRecord.model_validate(item))
+    return records
 
 
 def _scope_matches(node: Node, *, agent_id: str = "", project: str = "", session_id: str = "") -> bool:
@@ -169,6 +208,12 @@ class Neo4jMemoryGraph:
             ).consume()
             session.run(
                 """
+                CREATE CONSTRAINT waggle_transcript_id IF NOT EXISTS
+                FOR (t:MemoryTranscript) REQUIRE t.id IS UNIQUE
+                """
+            ).consume()
+            session.run(
+                """
                 CREATE CONSTRAINT waggle_tenant_id IF NOT EXISTS
                 FOR (t:GraphTenant) REQUIRE t.tenant_id IS UNIQUE
                 """
@@ -189,6 +234,18 @@ class Neo4jMemoryGraph:
                 """
                 CREATE INDEX waggle_node_tenant_type IF NOT EXISTS
                 FOR (n:MemoryNode) ON (n.tenant_id, n.node_type)
+                """
+            ).consume()
+            session.run(
+                """
+                CREATE INDEX waggle_transcript_tenant_observed IF NOT EXISTS
+                FOR (t:MemoryTranscript) ON (t.tenant_id, t.observed_at)
+                """
+            ).consume()
+            session.run(
+                """
+                CREATE INDEX waggle_transcript_tenant_session_turn IF NOT EXISTS
+                FOR (t:MemoryTranscript) ON (t.tenant_id, t.session_id, t.turn_index)
                 """
             ).consume()
             session.run(
@@ -444,7 +501,7 @@ class Neo4jMemoryGraph:
         *,
         source_id: str,
         target_id: str,
-        relationship: RelationType,
+        relationship: str | RelationType,
         weight: float = 1.0,
         metadata: dict[str, Any] | None = None,
     ) -> Edge:
@@ -484,7 +541,7 @@ class Neo4jMemoryGraph:
                 tenant_id=self.tenant_id,
                 source_id=edge.source_id,
                 target_id=edge.target_id,
-                relationship=edge.relationship.value,
+                relationship=edge.relationship,
                 weight=edge.weight,
                 metadata=_encode_metadata(edge.metadata),
                 created_at=edge.created_at.isoformat(),
@@ -507,6 +564,7 @@ class Neo4jMemoryGraph:
         agent_id: str = "",
         project: str = "",
         session_id: str = "",
+        retrieval_mode: str = "graph",
     ) -> SubgraphResult:
         query_text = query.strip()
         if not query_text:
@@ -515,9 +573,66 @@ class Neo4jMemoryGraph:
             raise ValueError("max_nodes must be at least 1.")
         if max_depth < 0:
             raise ValueError("max_depth cannot be negative.")
+        normalized_mode = retrieval_mode.strip().lower()
+        if normalized_mode not in {"graph", "replay", "fusion"}:
+            raise ValidationFailure("retrieval_mode must be one of: graph, replay, fusion.")
 
+        graph_result = (
+            self._query_graph_only(
+                query=query_text,
+                max_nodes=max_nodes,
+                max_depth=max_depth,
+                agent_id=agent_id,
+                project=project,
+                session_id=session_id,
+            )
+            if normalized_mode in {"graph", "fusion"}
+            else None
+        )
+        replay_hits = (
+            self._query_replay_hits(
+                query=query_text,
+                max_hits=max_nodes,
+                agent_id=agent_id,
+                project=project,
+                session_id=session_id,
+            )
+            if normalized_mode in {"replay", "fusion"}
+            else []
+        )
+        if normalized_mode == "graph":
+            graph_result.retrieval_mode = "graph"
+            return graph_result
+        if normalized_mode == "replay":
+            return SubgraphResult(
+                replay_hits=replay_hits,
+                retrieval_mode="replay",
+                query=query_text,
+                total_nodes_in_graph=graph_result.total_nodes_in_graph if graph_result is not None else 0,
+            )
+        fusion_hits = self._build_fusion_hits(graph_result or SubgraphResult(query=query_text), replay_hits)
+        return SubgraphResult(
+            nodes=graph_result.nodes if graph_result is not None else [],
+            edges=graph_result.edges if graph_result is not None else [],
+            replay_hits=replay_hits,
+            fusion_hits=fusion_hits[:max_nodes],
+            retrieval_mode="fusion",
+            query=query_text,
+            total_nodes_in_graph=graph_result.total_nodes_in_graph if graph_result is not None else 0,
+        )
+
+    def _query_graph_only(
+        self,
+        *,
+        query: str,
+        max_nodes: int,
+        max_depth: int,
+        agent_id: str,
+        project: str,
+        session_id: str,
+    ) -> SubgraphResult:
         with self._lock, self._session() as session:
-            temporal_hints = infer_temporal_hints(query_text)
+            temporal_hints = infer_temporal_hints(query)
             node_records = [
                 record["n"]
                 for record in session.run(
@@ -527,7 +642,7 @@ class Neo4jMemoryGraph:
             ]
             total_nodes = len(node_records)
             if total_nodes == 0:
-                return SubgraphResult(query=query_text, total_nodes_in_graph=0)
+                return SubgraphResult(query=query, total_nodes_in_graph=0)
 
             nodes_by_id = {
                 props["id"]: node
@@ -536,20 +651,20 @@ class Neo4jMemoryGraph:
                 if _scope_matches(node, agent_id=agent_id, project=project, session_id=session_id)
             }
             if not nodes_by_id:
-                return SubgraphResult(query=query_text, total_nodes_in_graph=total_nodes)
+                return SubgraphResult(query=query, total_nodes_in_graph=total_nodes)
             embeddings_by_id = {
                 props["id"]: np.array(props.get("embedding") or [], dtype=np.float32)
                 for props in node_records
                 if props.get("embedding") and props["id"] in nodes_by_id
             }
 
-            query_embedding = self.embedding_model.embed(query_text)
+            query_embedding = self.embedding_model.embed(query)
             similarity_by_id = {
                 node_id: max(self.embedding_model.cosine_similarity(query_embedding, embedding), 0.0)
                 for node_id, embedding in embeddings_by_id.items()
             }
             lexical_by_id = {
-                node_id: lexical_overlap(query_text, node.label, node.content)
+                node_id: lexical_overlap(query, node.label, node.content)
                 for node_id, node in nodes_by_id.items()
             }
 
@@ -583,9 +698,7 @@ class Neo4jMemoryGraph:
             graph = self._load_graph(session)
             expanded_depths = self._expand_node_depths(graph, ranked_seed_ids, max_depth)
             candidate_nodes = [nodes_by_id[node_id] for node_id in expanded_depths]
-            temporal_candidates = [
-                node for node in candidate_nodes if within_time_window(node, temporal_hints)
-            ]
+            temporal_candidates = [node for node in candidate_nodes if within_time_window(node, temporal_hints)]
             if temporal_candidates:
                 candidate_nodes = temporal_candidates
             max_access = max((node.access_count for node in candidate_nodes), default=0)
@@ -612,9 +725,140 @@ class Neo4jMemoryGraph:
             return SubgraphResult(
                 nodes=selected_nodes,
                 edges=edges,
-                query=query_text,
+                retrieval_mode="graph",
+                query=query,
                 total_nodes_in_graph=total_nodes,
             )
+
+    def _query_replay_hits(
+        self,
+        *,
+        query: str,
+        max_hits: int,
+        agent_id: str,
+        project: str,
+        session_id: str,
+    ) -> list[ReplayHit]:
+        with self._lock, self._session() as session:
+            records = list(
+                session.run(
+                    """
+                    MATCH (t:MemoryTranscript {tenant_id: $tenant_id})
+                    RETURN t
+                    ORDER BY t.observed_at DESC, t.turn_index DESC
+                    """,
+                    tenant_id=self.tenant_id,
+                )
+            )
+        if not records:
+            return []
+
+        rows = [self._transcript_from_props(record["t"]) for record in records]
+        query_embedding = self.embedding_model.embed(query)
+        temporal_hints = infer_temporal_hints(query)
+        timestamps = np.asarray([row.observed_at.timestamp() for row in rows], dtype=np.float64)
+        max_timestamp = float(np.max(timestamps))
+        min_timestamp = float(np.min(timestamps))
+        span = max(max_timestamp - min_timestamp, 1.0)
+        hits: list[tuple[float, ReplayHit]] = []
+        for row, raw_timestamp, record in zip(rows, timestamps, records, strict=True):
+            if not self._transcript_scope_matches(row, agent_id=agent_id, project=project, session_id=session_id):
+                continue
+            embedding = np.asarray(record["t"].get("embedding") or [], dtype=np.float32)
+            semantic_score = max(self.embedding_model.cosine_similarity(query_embedding, embedding), 0.0)
+            lexical_score = lexical_overlap(query, row.role, row.transcript_text)
+            temporal_score = 0.0
+            if temporal_hints.recency_mode == "latest":
+                temporal_score = float((raw_timestamp - min_timestamp) / span)
+            elif temporal_hints.recency_mode == "oldest":
+                temporal_score = float((max_timestamp - raw_timestamp) / span)
+            role_score = 1.0 if row.role == "user" else 0.8
+            score = (0.6 * semantic_score) + (0.2 * lexical_score) + (0.1 * temporal_score) + (0.1 * role_score)
+            hits.append(
+                (
+                    score,
+                    ReplayHit(
+                        score=score,
+                        session_id=row.session_id,
+                        turn_index=row.turn_index,
+                        role=row.role,
+                        transcript_text=row.transcript_text,
+                        transcript_snippet=row.transcript_text[:280],
+                        observed_at=row.observed_at,
+                    ),
+                )
+            )
+        hits.sort(key=lambda item: (-item[0], -item[1].observed_at.timestamp(), item[1].turn_index))
+        return [hit for _, hit in hits[:max_hits]]
+
+    def _build_fusion_hits(
+        self,
+        graph_result: SubgraphResult,
+        replay_hits: list[ReplayHit],
+    ) -> list[FusionHit]:
+        combined: dict[str, FusionHit] = {}
+        graph_edges = [
+            {
+                "id": edge.id,
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "relationship": edge.relationship,
+                "weight": edge.weight,
+            }
+            for edge in graph_result.edges
+        ]
+        for index, node in enumerate(graph_result.nodes, start=1):
+            key = f"graph:{node.id}"
+            combined[key] = FusionHit(
+                content=node.content,
+                score=1.0 / (60 + index),
+                source_lane="graph",
+                graph_rank=index,
+                fused_rank=index,
+                node_id=node.id,
+                node_type=node.node_type.value,
+                edges=graph_edges,
+                session_id=node.session_id or None,
+            )
+        for index, hit in enumerate(replay_hits, start=1):
+            key = f"replay:{hit.session_id}:{hit.turn_index}:{hit.role}"
+            matching_graph = next(
+                (node for node in graph_result.nodes if node.session_id and node.session_id == hit.session_id),
+                None,
+            )
+            if matching_graph is not None:
+                key = f"both:{matching_graph.id}:{hit.session_id}:{hit.turn_index}"
+            existing = combined.get(key)
+            contribution = 1.0 / (60 + index)
+            if existing is None:
+                combined[key] = FusionHit(
+                    content=hit.transcript_text,
+                    score=contribution,
+                    source_lane="replay" if matching_graph is None else "both",
+                    replay_rank=index,
+                    fused_rank=index,
+                    node_id=matching_graph.id if matching_graph is not None else None,
+                    node_type=matching_graph.node_type.value if matching_graph is not None else None,
+                    edges=graph_edges if matching_graph is not None else None,
+                    session_id=hit.session_id,
+                    transcript_snippet=hit.transcript_snippet,
+                    turn_index=hit.turn_index,
+                )
+                continue
+            existing.score += contribution
+            existing.source_lane = "both"
+            existing.replay_rank = index
+            existing.session_id = hit.session_id
+            existing.transcript_snippet = hit.transcript_snippet
+            existing.turn_index = hit.turn_index
+
+        ordered = sorted(
+            combined.values(),
+            key=lambda hit: (-hit.score, hit.graph_rank or 10**6, hit.replay_rank or 10**6, hit.content.lower()),
+        )
+        for index, hit in enumerate(ordered, start=1):
+            hit.fused_rank = index
+        return ordered
 
     def get_related(self, *, node_id: str, max_depth: int = 2) -> SubgraphResult:
         if max_depth < 0:
@@ -849,7 +1093,7 @@ class Neo4jMemoryGraph:
                     id=record["id"],
                     source_id=record["source_id"],
                     target_id=record["target_id"],
-                    relationship=RelationType(record["relationship"]),
+                    relationship=record["relationship"],
                     weight=float(record["weight"]),
                     metadata=_decode_metadata(record["metadata"]),
                     created_at=_parse_datetime(record["created_at"]),
@@ -918,7 +1162,7 @@ class Neo4jMemoryGraph:
             network.add_edge(
                 edge.source_id,
                 edge.target_id,
-                label=edge.relationship.value,
+                label=edge.relationship,
                 title=f"weight={edge.weight}",
                 value=max(edge.weight, 0.1),
                 arrows="to",
@@ -957,6 +1201,7 @@ class Neo4jMemoryGraph:
         session_id: str = "",
         max_nodes: int = 25,
         max_depth: int = 2,
+        retrieval_mode: str = "graph",
         format: str = "both",
         output_path: str | Path | None = None,
         include_edges: bool = True,
@@ -967,15 +1212,21 @@ class Neo4jMemoryGraph:
         normalized_mode = mode.strip().lower()
         normalized_format = format.strip().lower()
         normalized_audience = audience.strip().lower()
+        normalized_retrieval_mode = retrieval_mode.strip().lower()
         if normalized_mode not in {"prime", "query", "graph"}:
             raise ValidationFailure("mode must be one of: prime, query, graph.")
         if normalized_format not in {"markdown", "json", "both"}:
             raise ValidationFailure("format must be one of: markdown, json, both.")
         if normalized_audience not in {"llm", "human"}:
             raise ValidationFailure("audience must be one of: llm, human.")
+        if normalized_retrieval_mode not in {"graph", "replay", "fusion"}:
+            raise ValidationFailure("retrieval_mode must be one of: graph, replay, fusion.")
         if normalized_mode == "query" and not query.strip():
             raise ValidationFailure("query is required when mode='query'.")
+        if normalized_mode != "query" and normalized_retrieval_mode != "graph":
+            raise ValidationFailure("retrieval_mode is only supported when mode='query'.")
 
+        replay_hits: list[ReplayHit] = []
         if normalized_mode == "prime":
             selected = self.prime_context(project=project, agent_id=agent_id, session_id=session_id)
             selected_nodes = selected.nodes[:max_nodes]
@@ -989,9 +1240,11 @@ class Neo4jMemoryGraph:
                 agent_id=agent_id,
                 project=project,
                 session_id=session_id,
+                retrieval_mode=normalized_retrieval_mode,
             )
             selected_nodes = selected.nodes
             selected_edges = selected.edges if include_edges else []
+            replay_hits = selected.replay_hits
             summary = (
                 f"Query context for '{query}' with {len(selected.nodes)} nodes and {len(selected.edges) if include_edges else 0} edges."
             )
@@ -1011,7 +1264,7 @@ class Neo4jMemoryGraph:
                         id=record["id"],
                         source_id=record["source_id"],
                         target_id=record["target_id"],
-                        relationship=RelationType(record["relationship"]),
+                        relationship=record["relationship"],
                         weight=float(record["weight"]),
                         metadata=_decode_metadata(record["metadata"]),
                         created_at=_parse_datetime(record["created_at"]),
@@ -1041,11 +1294,13 @@ class Neo4jMemoryGraph:
             tenant_id=self.tenant_id,
             project=project,
             mode=normalized_mode,
+            retrieval_mode=normalized_retrieval_mode if normalized_mode == "query" else "graph",
             audience=normalized_audience,
             query=query,
             summary=summary,
             nodes=selected_nodes,
             edges=selected_edges,
+            replay_hits=replay_hits,
             stats=self.get_stats(),
         )
         return export_context_bundle_files(
@@ -1057,6 +1312,169 @@ class Neo4jMemoryGraph:
             include_timestamps=include_timestamps,
             include_source_prompt=include_source_prompt,
         )
+
+    def export_markdown_vault(
+        self,
+        *,
+        root_path: str | Path,
+        project: str = "",
+        agent_id: str = "",
+        session_id: str = "",
+    ) -> MarkdownVaultExportResult:
+        root = Path(root_path).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        with self._lock, self._session() as session:
+            selected_nodes = [
+                node
+                for record in session.run(
+                    "MATCH (n:MemoryNode {tenant_id: $tenant_id}) RETURN n ORDER BY n.updated_at DESC, n.created_at DESC",
+                    tenant_id=self.tenant_id,
+                )
+                for node in [self._node_from_props(record["n"])]
+                if _scope_matches(node, agent_id=agent_id, project=project, session_id=session_id)
+            ]
+            selected_ids = {node.id for node in selected_nodes}
+            selected_edges = [
+                Edge(
+                    id=record["id"],
+                    source_id=record["source_id"],
+                    target_id=record["target_id"],
+                    relationship=record["relationship"],
+                    weight=float(record["weight"]),
+                    metadata=_decode_metadata(record["metadata"]),
+                    created_at=_parse_datetime(record["created_at"]),
+                )
+                for record in session.run(
+                    """
+                    MATCH (source:MemoryNode {tenant_id: $tenant_id})-[r:MEMORY_EDGE {tenant_id: $tenant_id}]->(target:MemoryNode {tenant_id: $tenant_id})
+                    RETURN r.id AS id, source.id AS source_id, target.id AS target_id,
+                           r.relationship AS relationship, r.weight AS weight,
+                           r.metadata AS metadata, r.created_at AS created_at
+                    ORDER BY r.created_at ASC
+                    """,
+                    tenant_id=self.tenant_id,
+                )
+                if record["source_id"] in selected_ids and record["target_id"] in selected_ids
+            ]
+        node_by_id = {node.id: node for node in selected_nodes}
+        files_written: list[str] = []
+        for node in selected_nodes:
+            project_dir = slugify(node.project or project or "default")
+            node_type_dir = slugify(node.node_type.value)
+            destination = root / project_dir / node_type_dir / vault_filename(node)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(render_node_document(node, selected_edges, node_by_id), encoding="utf-8")
+            files_written.append(str(destination))
+        return MarkdownVaultExportResult(
+            root_path=str(root),
+            tenant_id=self.tenant_id,
+            project=project,
+            node_count=len(selected_nodes),
+            edge_count=len(selected_edges),
+            files_written=files_written,
+        )
+
+    def import_markdown_vault(
+        self,
+        *,
+        root_path: str | Path,
+    ) -> MarkdownVaultImportResult:
+        documents = iter_vault_documents(root_path)
+        result = MarkdownVaultImportResult(root_path=str(Path(root_path).expanduser()), tenant_id=self.tenant_id)
+        if not documents:
+            return result
+
+        nodes_by_id: dict[str, Node] = {}
+        label_index: dict[str, Node] = {}
+        with self._lock, self._session() as session:
+            for record in session.run(
+                "MATCH (n:MemoryNode {tenant_id: $tenant_id}) RETURN n",
+                tenant_id=self.tenant_id,
+            ):
+                node = self._node_from_props(record["n"])
+                nodes_by_id[node.id] = node
+                label_index.setdefault(node.label.strip().lower(), node)
+
+        for document in documents:
+            node_id = str(document.frontmatter.get("node_id", "")).strip()
+            raw_type = str(document.frontmatter.get("node_type", "note") or "note")
+            try:
+                node_type = NodeType(raw_type)
+            except ValueError:
+                node_type = NodeType.NOTE
+            if node_id in nodes_by_id:
+                updated = self.update_node(
+                    node_id=node_id,
+                    label=document.label,
+                    content=document.content.strip() or document.label,
+                    tags=[str(tag) for tag in document.frontmatter.get("tags", []) or []],
+                )
+                nodes_by_id[node_id] = updated
+                label_index[updated.label.strip().lower()] = updated
+                result.nodes_updated += 1
+            else:
+                created = self.add_node(
+                    label=document.label,
+                    content=document.content.strip() or document.label,
+                    node_type=node_type,
+                    tags=[str(tag) for tag in document.frontmatter.get("tags", []) or []],
+                    agent_id=str(document.frontmatter.get("agent_id", "") or ""),
+                    project=str(document.frontmatter.get("project", "") or ""),
+                    session_id=str(document.frontmatter.get("session_id", "") or ""),
+                    evidence_records=evidence_from_lines(document.evidence_lines),
+                    valid_from=self._parse_optional_datetime(document.frontmatter.get("valid_from")),
+                    valid_to=self._parse_optional_datetime(document.frontmatter.get("valid_to")),
+                ).node
+                nodes_by_id[created.id] = created
+                label_index[created.label.strip().lower()] = created
+                result.nodes_created += 1
+
+        for document in documents:
+            source_node = nodes_by_id.get(str(document.frontmatter.get("node_id", "")).strip())
+            if source_node is None:
+                result.conflicts.append(f"Missing source node for {document.path.name}.")
+                continue
+            for relation in document.relations:
+                target = nodes_by_id.get(relation.target_node_id) if relation.target_node_id else None
+                if target is None and relation.target_label:
+                    target = label_index.get(relation.target_label.strip().lower())
+                if target is None and relation.target_label:
+                    target = self.add_node(
+                        label=relation.target_label,
+                        content=f"Stub node imported from vault for {relation.target_label}.",
+                        node_type=NodeType.NOTE,
+                        tags=["stub", "vault-import"],
+                        project=source_node.project,
+                        agent_id=source_node.agent_id,
+                        session_id=source_node.session_id,
+                    ).node
+                    nodes_by_id[target.id] = target
+                    label_index[target.label.strip().lower()] = target
+                    result.stub_nodes_created += 1
+                if target is None:
+                    result.conflicts.append(
+                        f"Could not resolve relation target '{relation.target_label}' in {document.path.name}."
+                    )
+                    continue
+                if relation.deleted:
+                    if self._delete_edge_record(
+                        source_id=source_node.id,
+                        target_id=target.id,
+                        relationship=relation.relationship,
+                    ):
+                        result.edges_deleted += 1
+                    continue
+                with self._lock, self._session() as session:
+                    existing_edge = self._find_existing_edge(
+                        session,
+                        source_id=source_node.id,
+                        target_id=target.id,
+                        relationship=relation.relationship,
+                    )
+                if existing_edge is None:
+                    self.add_edge(source_id=source_node.id, target_id=target.id, relationship=relation.relationship)
+                    result.edges_created += 1
+        return result
 
     def import_graph_backup(self, *, input_path: str | Path) -> ImportResult:
         source = Path(input_path).expanduser()
@@ -1222,7 +1640,7 @@ class Neo4jMemoryGraph:
                     tenant_id=self.tenant_id,
                     source_id=record["source_id"],
                     target_id=record["target_id"],
-                    relationship=RelationType(record["relationship"]),
+                    relationship=record["relationship"],
                     weight=float(record["weight"]),
                     metadata=_decode_metadata(record["metadata"]),
                     created_at=_parse_datetime(record["created_at"]),
@@ -1274,12 +1692,12 @@ class Neo4jMemoryGraph:
                 tenant_id=self.tenant_id,
                 source_id=record["source_id"],
                 target_id=record["target_id"],
-                relationship=RelationType(record["relationship"]),
+                relationship=record["relationship"],
                 weight=float(record["weight"]),
                 metadata=_decode_metadata(record["metadata"]),
                 created_at=_parse_datetime(record["created_at"]),
             )
-            if edge.relationship not in {RelationType.CONTRADICTS, RelationType.UPDATES}:
+            if edge.relationship not in {RelationType.CONTRADICTS.value, RelationType.UPDATES.value}:
                 raise ValueError("Only contradicts or updates edges can be resolved.")
 
             metadata = dict(edge.metadata)
@@ -1332,13 +1750,32 @@ class Neo4jMemoryGraph:
             user_message=user_message,
             assistant_response=assistant_response,
         )
-        
+
         result = ObservationResult()
+        with self._lock, self._session() as session:
+            next_turn_index = self._next_transcript_turn_index(session, session_id=session_id)
+            turns = [
+                ("user", user_message.strip(), next_turn_index),
+                ("assistant", assistant_response.strip(), next_turn_index + 1),
+            ]
+            for role, text, turn_index in turns:
+                if not text:
+                    continue
+                self._store_transcript_record(
+                    session,
+                    agent_id=agent_id,
+                    project=project,
+                    session_id=session_id,
+                    observed_at=observed_at,
+                    turn_index=turn_index,
+                    role=role,
+                    transcript_text=text,
+                )
         for candidate in candidates:
             candidate_tags = list(candidate.get("tags", []))
             speaker_tag = next((tag for tag in candidate_tags if str(tag).startswith("speaker:")), "")
             speaker = speaker_tag.split(":", 1)[1] if ":" in speaker_tag else "user"
-            turn_index = 0 if speaker == "user" else 1
+            turn_index = next_turn_index if speaker == "user" else next_turn_index + 1
             evidence = build_observation_evidence(
                 transcript=transcript,
                 source_text=str(candidate["content"]),
@@ -1404,7 +1841,7 @@ class Neo4jMemoryGraph:
                     tenant_id=self.tenant_id,
                     source_id=record["source_id"],
                     target_id=record["target_id"],
-                    relationship=RelationType(record["relationship"]),
+                    relationship=record["relationship"],
                     weight=float(record["weight"]),
                     metadata=_decode_metadata(record["metadata"]),
                     created_at=_parse_datetime(record["created_at"]),
@@ -1541,7 +1978,7 @@ class Neo4jMemoryGraph:
             "tags": node.tags,
             "embedding": embedding.astype(np.float32).tolist(),
             "source_prompt": node.source_prompt,
-            "evidence_records": [record.model_dump(mode="json") for record in node.evidence_records],
+            "evidence_records": _encode_evidence_records(node.evidence_records),
             "valid_from": node.valid_from.isoformat() if node.valid_from is not None else None,
             "valid_to": node.valid_to.isoformat() if node.valid_to is not None else None,
             "created_at": node.created_at.isoformat(),
@@ -1561,13 +1998,121 @@ class Neo4jMemoryGraph:
             node_type=NodeType(props["node_type"]),
             tags=list(props.get("tags") or []),
             source_prompt=props.get("source_prompt") or "",
-            evidence_records=[EvidenceRecord.model_validate(item) for item in props.get("evidence_records") or []],
+            evidence_records=_decode_evidence_records(props.get("evidence_records")),
             valid_from=_parse_datetime(props["valid_from"]) if props.get("valid_from") else None,
             valid_to=_parse_datetime(props["valid_to"]) if props.get("valid_to") else None,
             created_at=_parse_datetime(props["created_at"]),
             updated_at=_parse_datetime(props["updated_at"]),
             access_count=int(props.get("access_count") or 0),
         )
+
+    def _transcript_from_props(self, props: Any) -> TranscriptRecord:
+        return TranscriptRecord(
+            id=props["id"],
+            tenant_id=props.get("tenant_id") or self.tenant_id,
+            agent_id=props.get("agent_id") or "",
+            project=props.get("project") or "",
+            session_id=props.get("session_id") or "",
+            observed_at=_parse_datetime(props["observed_at"]),
+            turn_index=int(props.get("turn_index") or 0),
+            role=props.get("role") or "",
+            transcript_text=props["transcript_text"],
+            metadata=_decode_metadata(props.get("metadata")),
+        )
+
+    def _transcript_scope_matches(
+        self,
+        record: TranscriptRecord,
+        *,
+        agent_id: str = "",
+        project: str = "",
+        session_id: str = "",
+    ) -> bool:
+        normalized_agent = agent_id.strip().lower()
+        normalized_project = project.strip().lower()
+        normalized_session = session_id.strip().lower()
+        if normalized_agent and record.agent_id.strip().lower() != normalized_agent:
+            return False
+        if normalized_project and record.project.strip().lower() != normalized_project:
+            return False
+        if normalized_session and record.session_id.strip().lower() != normalized_session:
+            return False
+        return True
+
+    def _next_transcript_turn_index(self, session: Any, *, session_id: str) -> int:
+        record = session.run(
+            """
+            MATCH (t:MemoryTranscript {tenant_id: $tenant_id, session_id: $session_id})
+            RETURN COALESCE(max(t.turn_index), -1) AS max_turn_index
+            """,
+            tenant_id=self.tenant_id,
+            session_id=session_id,
+        ).single()
+        return int(record["max_turn_index"] or -1) + 1
+
+    def _store_transcript_record(
+        self,
+        session: Any,
+        *,
+        agent_id: str,
+        project: str,
+        session_id: str,
+        observed_at: datetime,
+        turn_index: int,
+        role: str,
+        transcript_text: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> TranscriptRecord:
+        record = TranscriptRecord(
+            tenant_id=self.tenant_id,
+            agent_id=agent_id,
+            project=project,
+            session_id=session_id,
+            observed_at=observed_at,
+            turn_index=turn_index,
+            role=role,
+            transcript_text=transcript_text,
+            metadata=metadata or {},
+        )
+        session.run(
+            """
+            CREATE (t:MemoryTranscript {
+                id: $id,
+                tenant_id: $tenant_id,
+                agent_id: $agent_id,
+                project: $project,
+                session_id: $session_id,
+                observed_at: $observed_at,
+                turn_index: $turn_index,
+                role: $role,
+                transcript_text: $transcript_text,
+                embedding: $embedding,
+                metadata: $metadata
+            })
+            """,
+            id=record.id,
+            tenant_id=record.tenant_id,
+            agent_id=record.agent_id,
+            project=record.project,
+            session_id=record.session_id,
+            observed_at=record.observed_at.isoformat(),
+            turn_index=record.turn_index,
+            role=record.role,
+            transcript_text=record.transcript_text,
+            embedding=self.embedding_model.embed(record.transcript_text).astype(np.float32).tolist(),
+            metadata=_encode_metadata(record.metadata),
+        ).consume()
+        return record
+
+    def _parse_optional_datetime(self, raw: Any) -> datetime | None:
+        if raw in (None, ""):
+            return None
+        if isinstance(raw, datetime):
+            return raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc)
+        try:
+            return _parse_datetime(str(raw))
+        except ValueError:
+            return None
 
     def _find_duplicate_node(
         self,
@@ -1639,7 +2184,7 @@ class Neo4jMemoryGraph:
             tenant_id=self.tenant_id,
             tags=merged_tags,
             source_prompt=updated_source_prompt,
-            evidence_records=[record.model_dump(mode="json") for record in merged_evidence],
+            evidence_records=_encode_evidence_records(merged_evidence),
             valid_from=merged_valid_from.isoformat() if merged_valid_from is not None else None,
             valid_to=merged_valid_to.isoformat() if merged_valid_to is not None else None,
             updated_at=updated_at.isoformat(),
@@ -1710,7 +2255,7 @@ class Neo4jMemoryGraph:
                     tenant_id=self.tenant_id,
                     source_id=edge.source_id,
                     target_id=edge.target_id,
-                    relationship=edge.relationship.value,
+                    relationship=edge.relationship,
                     weight=edge.weight,
                     metadata=_encode_metadata(edge.metadata),
                     created_at=edge.created_at.isoformat(),
@@ -1804,10 +2349,10 @@ class Neo4jMemoryGraph:
             target_label = node_by_id.get(edge.target_id).label if edge.target_id in node_by_id else edge.target_id[:8]
             items.append(
                 ContextTimelineItem(
-                    kind=f"edge_{edge.relationship.value}",
+                    kind=f"edge_{edge.relationship}",
                     timestamp=edge.created_at,
                     label=f"{source_label} -> {target_label}",
-                    summary=edge.relationship.value,
+                    summary=edge.relationship,
                     edge_id=edge.id,
                 )
             )
@@ -1938,7 +2483,7 @@ class Neo4jMemoryGraph:
                 tenant_id=self.tenant_id,
                 source_id=record["source_id"],
                 target_id=record["target_id"],
-                relationship=RelationType(record["relationship"]),
+                relationship=record["relationship"],
                 weight=float(record["weight"]),
                 metadata=_decode_metadata(record["metadata"]),
                 created_at=_parse_datetime(record["created_at"]),
@@ -1976,7 +2521,7 @@ class Neo4jMemoryGraph:
         *,
         source_id: str,
         target_id: str,
-        relationship: RelationType,
+        relationship: str | RelationType,
     ) -> Edge | None:
         record = session.run(
             """
@@ -1988,7 +2533,7 @@ class Neo4jMemoryGraph:
             tenant_id=self.tenant_id,
             source_id=source_id,
             target_id=target_id,
-            relationship=relationship.value,
+            relationship=normalize_relationship(relationship),
         ).single()
         if record is None:
             return None
@@ -1997,11 +2542,31 @@ class Neo4jMemoryGraph:
             tenant_id=self.tenant_id,
             source_id=record["source_id"],
             target_id=record["target_id"],
-            relationship=RelationType(record["relationship"]),
+            relationship=record["relationship"],
             weight=float(record["weight"]),
             metadata=_decode_metadata(record["metadata"]),
             created_at=_parse_datetime(record["created_at"]),
         )
+
+    def _delete_edge_record(
+        self,
+        *,
+        source_id: str,
+        target_id: str,
+        relationship: str,
+    ) -> bool:
+        with self._lock, self._session() as session:
+            summary = session.run(
+                """
+                MATCH (source:MemoryNode {tenant_id: $tenant_id, id: $source_id})-[r:MEMORY_EDGE {tenant_id: $tenant_id, relationship: $relationship}]->(target:MemoryNode {tenant_id: $tenant_id, id: $target_id})
+                DELETE r
+                """,
+                tenant_id=self.tenant_id,
+                source_id=source_id,
+                target_id=target_id,
+                relationship=normalize_relationship(relationship),
+            ).consume()
+        return int(summary.counters.relationships_deleted or 0) > 0
 
     def _most_connected_node_ids(self, session: Any, *, limit: int) -> list[str]:
         return [
@@ -2072,7 +2637,7 @@ class Neo4jMemoryGraph:
                 "node_type": props["node_type"],
                 "tags": list(props.get("tags") or []),
                 "source_prompt": props.get("source_prompt") or "",
-                "evidence_records": list(props.get("evidence_records") or []),
+                "evidence_records": [record.model_dump(mode="json") for record in _decode_evidence_records(props.get("evidence_records"))],
                 "valid_from": props.get("valid_from"),
                 "valid_to": props.get("valid_to"),
                 "created_at": props["created_at"],
@@ -2130,7 +2695,7 @@ class Neo4jMemoryGraph:
             tags=raw_node.get("tags", []),
             embedding=embedding,
             source_prompt=raw_node.get("source_prompt", ""),
-            evidence_records=raw_node.get("evidence_records", []),
+            evidence_records=_encode_evidence_records([EvidenceRecord.model_validate(item) for item in raw_node.get("evidence_records", [])]),
             valid_from=raw_node.get("valid_from"),
             valid_to=raw_node.get("valid_to"),
             created_at=raw_node["created_at"],
@@ -2166,7 +2731,7 @@ class Neo4jMemoryGraph:
             tags=raw_node.get("tags", []),
             embedding=embedding,
             source_prompt=raw_node.get("source_prompt", ""),
-            evidence_records=raw_node.get("evidence_records", []),
+            evidence_records=_encode_evidence_records([EvidenceRecord.model_validate(item) for item in raw_node.get("evidence_records", [])]),
             valid_from=raw_node.get("valid_from"),
             valid_to=raw_node.get("valid_to"),
             created_at=raw_node["created_at"],

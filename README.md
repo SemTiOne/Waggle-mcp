@@ -158,6 +158,15 @@ Three modes:
 - `query` — retrieval results plus supporting edges for a specific question
 - `graph` — full tenant graph, chunked and summarized for large exports
 
+For `mode="query"`, you can also choose a retrieval lane:
+- `retrieval_mode="graph"` — graph-native retrieval only
+- `retrieval_mode="replay"` — raw transcript/session replay only
+- `retrieval_mode="fusion"` — reciprocal-rank fusion of graph context and replay evidence
+
+### Markdown vault round-trip
+
+`export_markdown_vault` writes one Markdown file per node with YAML frontmatter, Obsidian-friendly wikilinks, and stable full-ID filenames. `import_markdown_vault` round-trips those edits back into Waggle non-destructively: new wikilinks create edges, explicit strikethrough wikilinks delete edges, and missing links do not prune history.
+
 ---
 
 ## Context Assembly: Before & After
@@ -277,7 +286,9 @@ Under the hood, every call runs a deterministic extraction pass that turns messy
 
 **Edge types** — how nodes connect:
 
-`relates_to` · `contradicts` · `depends_on` · `part_of` · `updates` · `derived_from` · `similar_to`
+Built-in defaults: `relates_to` · `contradicts` · `depends_on` · `part_of` · `updates` · `derived_from` · `similar_to`
+
+Vault imports and other advanced workflows can also create additional normalized relationship strings when a user-authored edge type does not map cleanly onto the built-in set.
 
 ---
 
@@ -288,7 +299,7 @@ Under the hood, every call runs a deterministic extraction pass that turns messy
 | Tool | What it does |
 |------|-------------|
 | `observe_conversation` | **Drop a conversation turn in — facts extracted, stored, and linked** |
-| `query_graph` | Semantic + temporal search across the graph |
+| `query_graph` | Semantic + temporal search across the graph, transcript replay, or fusion mode |
 | `store_node` | Manually save a fact, preference, decision, or note |
 | `store_edge` | Link two nodes with a typed relationship |
 | `get_related` | Traverse edges from a specific node |
@@ -307,7 +318,9 @@ Under the hood, every call runs a deterministic extraction pass that turns messy
 | `export_graph_html` | Interactive browser visualization |
 | `export_graph_backup` | Portable JSON backup |
 | `export_context_bundle` | Export Markdown/JSON context packs for handing memory to another AI |
+| `export_markdown_vault` | Export one-file-per-node Markdown vaults for Obsidian-compatible editing |
 | `import_graph_backup` | Restore from a JSON backup |
+| `import_markdown_vault` | Round-trip Markdown vault edits back into the graph |
 
 Most ingestion and retrieval tools also accept optional `agent_id`, `project`, and `session_id` fields so you can keep one tenant’s memory sliced by workspace, agent, or session without spinning up separate databases.
 
@@ -332,7 +345,7 @@ Corpus: 12 dialogue pairs covering simple recall, interruptions, reversals, vagu
 
 | Backend | Cases | Accuracy |
 |---------|-------|----------|
-| Deterministic conversation parser | 12 | 50% |
+| Deterministic conversation parser | 12 | 100% |
 
 ### Retrieval accuracy
 
@@ -393,7 +406,7 @@ The tradeoff is honest: the chunked baseline achieves 100% Hit@k on this corpus 
 
 The system was also tested on a pure query stress evaluation corpus containing 40 adversarial cases across `adversarial_paraphrase` and `temporal_latest` task families:
 
-> **Methodology note:** The comparative corpus above is an end-to-end evaluation: raw conversation → extraction → graph construction → retrieval. Its failures include extraction misses, not just retrieval misses. The Query Stress Eval below pre-loads a known graph and tests retrieval in isolation against 40 adversarial queries, with extraction removed as a variable. The gap between these two evaluations shows that retrieval quality is strong (98%) but end-to-end accuracy is bottlenecked by extraction. Improving the deterministic parser is the next priority.
+> **Methodology note:** The comparative corpus above is an end-to-end evaluation: raw conversation → extraction → graph construction → retrieval. The Query Stress Eval below pre-loads a known graph and tests retrieval in isolation against 40 adversarial queries, with extraction removed as a variable. The gap between these two evaluations shows that retrieval quality is strong (98%) in isolation, while the broader end-to-end corpus still exposes harder paraphrase and temporal edge cases. The current 12-case extraction fixture now scores 100%, but the comparative corpus remains the more important test of real-world robustness.
 
 | System | Hit@k | Exact support | Mean tokens |
 |--------|-------|---------------|-------------|
@@ -441,9 +454,19 @@ A LongMemEval exploratory adapter has been built and supports two currently impl
 - `graph_hybrid` — graph retrieval plus deterministic query expansion and temporal boosts
 - `graph_reranked` — planned lightweight LLM reranking mode for external comparison
 
-Baseline results will be published here once the exploratory run is complete. No threshold claims are made until real numbers are measured.
+Exploratory external baseline on the full `500`-question `s` split:
 
-> Full artifacts, methodology, and rag_tuned comparison: [`tests/artifacts/README.md`](./tests/artifacts/README.md)  
+| Mode | R@5 | Exact@5 | Status |
+|------|-----|---------|--------|
+| `graph_raw` | `97.0%` | `76.4%` | Full exploratory run completed |
+| `graph_hybrid` | `95.8%` | `82.0%` | Full exploratory run completed |
+
+No threshold claims are made until the methodology note is finalized and the reranked comparison path is measured.
+
+The benchmark runner now keys its prepared-session cache by dataset content hash plus embedding model/version. CLI runs report whether the result came from a cold or warm cache, and warm reruns reuse the saved prepared entries instead of rebuilding the split from scratch.
+
+> LongMemEval artifacts and reproduction notes: [`benchmarks/longmemeval/README.md`](./benchmarks/longmemeval/README.md)  
+> Full internal artifacts, methodology, and rag_tuned comparison: [`tests/artifacts/README.md`](./tests/artifacts/README.md)  
 > Improvement roadmap (dedup → context assembly → corpus hardening): [`docs/evaluation-plan.md`](./docs/evaluation-plan.md)
 
 
@@ -475,18 +498,18 @@ Beyond empirical benchmarks, `waggle-mcp` ships with a comprehensive pytest suit
 
 ```text
 ============================= test session starts ==============================
-collected 70 items
+collected 81 items
 
 tests/test_benchmark_harness.py .....
 tests/test_embeddings.py ....
-tests/test_graph.py ........................
+tests/test_graph.py .............................
 tests/test_packaging_metadata.py ..
 tests/test_platform.py ......
-tests/test_server.py ........................
+tests/test_server.py .........................
 tests/test_stdio_integration.py .
 tests/test_longmemeval_benchmark.py .
 
-============================== 70 passed in 5.70s ==============================
+============================== 81 passed in 6.75s ==============================
 ```
 </details>
 
@@ -733,15 +756,18 @@ waggle-mcp/
 
 **Retrieval & assembly** ✅ — Completed. Relation-aware context assembly now automatically bundles supporting context (decisions + reasons, old + new decisions with updates, full dependency chains), with all benchmarks passing.
 
-**Extraction quality** 🎯 — Current bottleneck. The deterministic parser scores 50% on the 12-case extraction corpus. Retrieval in isolation scores 98% on the stress eval, confirming the graph engine is strong but upstream extraction limits end-to-end accuracy.
+**Extraction hardening** 🎯 — The deterministic parser now scores 100% on the current 12-case extraction corpus after adding better reversal, final-choice, and numeric rate-limit handling. The next step is broadening the fixture set and relation inference so these gains hold on larger paraphrase- and temporality-heavy corpora, not just the current small benchmark.
 
 Planned improvements:
-- Improve the deterministic parser's coverage of reversals, hedged statements, and multi-fact sentences
+- Expand the extraction fixture beyond the current 12 cases so adversarial phrasing and temporal updates are measured directly
+- Improve the deterministic parser's coverage of hedged statements, multi-fact sentences, and cross-turn context
 - Add `ConversationContext` to relation inference (sentence proximity, coreference)
 - Introduce structured `RichEdge` with proof snippets and confidence scores
-- Expand edge type vocabulary beyond the current 7 fixed types
+- Add richer relation inference so user-authored vault relations and conversation-derived relations stay high-quality without manual cleanup
 
-**External benchmarks** 🔜 — A LongMemEval exploratory adapter is built and ready to run. Results will be published here once the baseline evaluation is complete.
+**External benchmarks** 🔜 — The exploratory LongMemEval baselines are now published at `97.0% R@5 / 76.4% Exact@5` for `graph_raw` and `95.8% R@5 / 82.0% Exact@5` for `graph_hybrid` on the full 500-case `s` split. The next deliverable is a short methodology note, a saved cold/warm cache comparison in the docs, and the planned reranked comparison path.
+
+**Product hardening** 🧭 — Transcript replay/fusion retrieval and markdown-vault round-trip are now in the product on both SQLite and Neo4j. The remaining work is polish rather than surface area: more aggressive replay ranking for recall-heavy corpora, cleaner Neo4j query warnings, and a stronger import report for large edited vaults.
 
 ---
 

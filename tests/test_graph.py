@@ -353,6 +353,148 @@ def test_export_context_bundle_graph_chunks_large_appendix(tmp_path: Path) -> No
     assert payload["stats"]["total_nodes"] == 45
 
 
+def test_query_replay_mode_returns_transcript_hits(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.observe_conversation(
+        user_message="We switched production to PostgreSQL last Friday.",
+        assistant_response="I will remember the PostgreSQL migration.",
+        session_id="sess-db",
+        project="alpha",
+    )
+
+    result = graph.query(
+        query="what database did we switch production to",
+        retrieval_mode="replay",
+        session_id="sess-db",
+    )
+
+    assert result.retrieval_mode == "replay"
+    assert result.replay_hits
+    assert result.replay_hits[0].session_id == "sess-db"
+    assert "PostgreSQL" in result.replay_hits[0].transcript_text
+
+
+def test_query_fusion_mode_includes_graph_and_replay_provenance(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.observe_conversation(
+        user_message="We switched production to PostgreSQL last Friday.",
+        assistant_response="I will remember the PostgreSQL migration.",
+        session_id="sess-db",
+    )
+
+    result = graph.query(
+        query="latest production database",
+        retrieval_mode="fusion",
+        max_nodes=5,
+    )
+
+    assert result.retrieval_mode == "fusion"
+    assert result.replay_hits
+    assert result.fusion_hits
+    assert result.fusion_hits[0].source_lane in {"graph", "replay", "both"}
+    assert result.fusion_hits[0].fused_rank >= 1
+
+
+def test_export_context_bundle_fusion_includes_replay_hits(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.observe_conversation(
+        user_message="We switched production to PostgreSQL last Friday.",
+        assistant_response="I will remember the PostgreSQL migration.",
+        session_id="sess-db",
+    )
+
+    exported = graph.export_context_bundle(
+        mode="query",
+        query="latest production database",
+        retrieval_mode="fusion",
+        format="both",
+        output_path=tmp_path / "fusion-context",
+    )
+    markdown = Path(exported.markdown_path).read_text(encoding="utf-8")
+    payload = json.loads(Path(exported.json_path).read_text(encoding="utf-8"))
+
+    assert exported.retrieval_mode == "fusion"
+    assert "## Replay Evidence" in markdown
+    assert payload["replay_hits"]
+
+
+def test_markdown_vault_export_and_import_round_trip(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    decision = graph.add_node(
+        label="Use PostgreSQL",
+        content="We decided to use PostgreSQL for production.",
+        node_type=NodeType.DECISION,
+        project="alpha",
+    ).node
+    reason = graph.add_node(
+        label="Need ACID",
+        content="ACID compliance matters.",
+        node_type=NodeType.FACT,
+        project="alpha",
+    ).node
+    graph.add_edge(
+        source_id=decision.id,
+        target_id=reason.id,
+        relationship=RelationType.DEPENDS_ON,
+    )
+
+    exported = graph.export_markdown_vault(root_path=tmp_path / "vault")
+    assert exported.files_written
+
+    decision_file = next(path for path in exported.files_written if decision.id in path)
+    updated_text = Path(decision_file).read_text(encoding="utf-8").replace(
+        "We decided to use PostgreSQL for production.",
+        "We decided to use PostgreSQL 16 for production.",
+    )
+    updated_text = updated_text.replace(
+        "## Relations\n- [[depends_on::Need ACID]] <!-- node_id:"
+        f"{reason.id} -->",
+        "## Relations\n"
+        f"- [[depends_on::Need ACID]] <!-- node_id:{reason.id} -->\n"
+        "- [[relates_to::Operational Runbook]]",
+    )
+    Path(decision_file).write_text(updated_text, encoding="utf-8")
+
+    imported = graph.import_markdown_vault(root_path=tmp_path / "vault")
+    updated = graph.get_node(decision.id)
+    replay = graph.get_related(node_id=decision.id, max_depth=1)
+
+    assert imported.nodes_updated >= 1
+    assert imported.stub_nodes_created == 1
+    assert updated.content == "We decided to use PostgreSQL 16 for production."
+    assert any(node.label == "Operational Runbook" for node in replay.nodes)
+    assert any(edge.relationship == "relates_to" for edge in replay.edges)
+
+
+def test_markdown_vault_import_explicit_relation_deletion(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    decision = graph.add_node(
+        label="Use PostgreSQL",
+        content="We decided to use PostgreSQL for production.",
+        node_type=NodeType.DECISION,
+    ).node
+    reason = graph.add_node(
+        label="Need ACID",
+        content="ACID compliance matters.",
+        node_type=NodeType.FACT,
+    ).node
+    graph.add_edge(source_id=decision.id, target_id=reason.id, relationship="depends_on")
+
+    exported = graph.export_markdown_vault(root_path=tmp_path / "vault-delete")
+    decision_file = next(path for path in exported.files_written if decision.id in path)
+    updated_text = Path(decision_file).read_text(encoding="utf-8").replace(
+        f"- [[depends_on::Need ACID]] <!-- node_id:{reason.id} -->",
+        f"- ~~[[depends_on::Need ACID]]~~ <!-- node_id:{reason.id} -->",
+    )
+    Path(decision_file).write_text(updated_text, encoding="utf-8")
+
+    imported = graph.import_markdown_vault(root_path=tmp_path / "vault-delete")
+    related = graph.get_related(node_id=decision.id, max_depth=1)
+
+    assert imported.edges_deleted == 1
+    assert not any(edge.relationship == "depends_on" and edge.target_id == reason.id for edge in related.edges)
+
+
 def test_conflict_detection_creates_contradiction_edge(tmp_path: Path) -> None:
     graph = make_graph(tmp_path)
     first = graph.add_node(

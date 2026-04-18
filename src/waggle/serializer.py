@@ -18,11 +18,27 @@ from waggle.models import (
 
 def serialize_subgraph(result: SubgraphResult) -> str:
     """Convert a subgraph result into readable text for an LLM."""
-    if not result.nodes:
+    if result.retrieval_mode == "replay":
+        if not result.replay_hits:
+            return "=== Memory Replay Results: No results found ==="
+        lines = [
+            f"=== Memory Replay Results ({len(result.replay_hits)} hits) ===",
+            "",
+            "[TRANSCRIPT HITS]",
+        ]
+        for hit in result.replay_hits:
+            lines.append(
+                f'• (session: {hit.session_id or "n/a"}, turn: {hit.turn_index}, role: {hit.role or "unknown"}) '
+                f'{hit.transcript_snippet or hit.transcript_text} [score={hit.score:.3f}]'
+            )
+        lines.extend(["", "=== End Results ==="])
+        return "\n".join(lines)
+
+    if not result.nodes and not result.fusion_hits:
         return "=== Memory Graph: No results found ==="
 
     lines = [
-        f"=== Memory Graph Results ({len(result.nodes)} nodes, {len(result.edges)} edges) ===",
+        f"=== Memory Graph Results ({len(result.nodes)} nodes, {len(result.edges)} edges, mode={result.retrieval_mode}) ===",
         "",
         "[NODES]",
     ]
@@ -42,10 +58,25 @@ def serialize_subgraph(result: SubgraphResult) -> str:
             source_label = label_map.get(edge.source_id, edge.source_id[:8])
             target_label = label_map.get(edge.target_id, edge.target_id[:8])
             lines.append(
-                f'• "{source_label}" --[{edge.relationship.value}]--> "{target_label}"'
+                f'• "{source_label}" --[{edge.relationship}]--> "{target_label}"'
             )
     else:
         lines.append("• No connecting relationships in this subgraph.")
+
+    if result.replay_hits:
+        lines.extend(["", "[REPLAY HITS]"])
+        for hit in result.replay_hits[:10]:
+            lines.append(
+                f'• (session: {hit.session_id or "n/a"}, turn: {hit.turn_index}, role: {hit.role or "unknown"}) '
+                f'{hit.transcript_snippet or hit.transcript_text} [score={hit.score:.3f}]'
+            )
+    if result.fusion_hits:
+        lines.extend(["", "[FUSION RANKING]"])
+        for hit in result.fusion_hits[:10]:
+            lines.append(
+                f'• #{hit.fused_rank} [{hit.source_lane}] {hit.content} '
+                f'(graph_rank={hit.graph_rank}, replay_rank={hit.replay_rank}, score={hit.score:.4f})'
+            )
 
     lines.extend(["", "=== End Results ==="])
     return "\n".join(lines)
@@ -170,7 +201,7 @@ def serialize_timeline(result: TimelineResult) -> str:
 def serialize_conflict_entry(entry: ConflictEntry) -> str:
     lines = [
         "=== Conflict Entry ===",
-        f'Conflict: "{entry.source_node.label}" --[{entry.edge.relationship.value}]--> "{entry.target_node.label}"',
+        f'Conflict: "{entry.source_node.label}" --[{entry.edge.relationship}]--> "{entry.target_node.label}"',
         f"Resolved: {'yes' if entry.resolved else 'no'}",
     ]
     if entry.resolution_note:
@@ -192,7 +223,7 @@ def serialize_conflicts(result: ConflictListResult) -> str:
         for entry in result.conflicts:
             resolved_suffix = " resolved" if entry.resolved else " unresolved"
             lines.append(
-                f'• "{entry.source_node.label}" --[{entry.edge.relationship.value}]--> '
+                f'• "{entry.source_node.label}" --[{entry.edge.relationship}]--> '
                 f'"{entry.target_node.label}" ({resolved_suffix.strip()})'
             )
     else:
@@ -205,6 +236,7 @@ def serialize_context_bundle_export(result: ContextBundleExportResult) -> str:
     lines = [
         "=== Context Bundle Export ===",
         f"Mode: {result.mode}",
+        f"Retrieval mode: {result.retrieval_mode}",
         f"Tenant: {result.tenant_id}",
         f"Project: {result.project or 'n/a'}",
         f"Query: {result.query or 'n/a'}",
@@ -240,7 +272,7 @@ def serialize_graph_diff(result: GraphDiffResult) -> str:
     if result.created_edges:
         lines.extend(["", "[CREATED EDGES]"])
         for edge in result.created_edges:
-            lines.append(f"• {edge.source_id[:8]} --[{edge.relationship.value}]--> {edge.target_id[:8]}")
+            lines.append(f"• {edge.source_id[:8]} --[{edge.relationship}]--> {edge.target_id[:8]}")
     if result.contradiction_edges:
         lines.extend(["", "[CONTRADICTIONS]"])
         for edge in result.contradiction_edges:
@@ -267,7 +299,7 @@ def serialize_prime_context(result: PrimeContextResult) -> str:
         for edge in result.edges:
             source_label = label_map.get(edge.source_id, edge.source_id[:8])
             target_label = label_map.get(edge.target_id, edge.target_id[:8])
-            lines.append(f'• "{source_label}" --[{edge.relationship.value}]--> "{target_label}"')
+            lines.append(f'• "{source_label}" --[{edge.relationship}]--> "{target_label}"')
     else:
         lines.append("• No connecting relationships in this brief.")
     lines.append("=== End Prime Context ===")

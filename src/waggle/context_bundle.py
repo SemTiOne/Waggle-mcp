@@ -14,6 +14,7 @@ from waggle.models import (
     Edge,
     GraphStats,
     Node,
+    ReplayHit,
 )
 
 APPENDIX_CHUNK_SIZE = 40
@@ -88,7 +89,7 @@ def _edge_to_export_dict(edge: Edge, *, include_timestamps: bool) -> dict[str, o
         "tenant_id": edge.tenant_id,
         "source_id": edge.source_id,
         "target_id": edge.target_id,
-        "relationship": edge.relationship.value,
+        "relationship": edge.relationship,
         "weight": edge.weight,
         "metadata": dict(edge.metadata),
     }
@@ -117,10 +118,10 @@ def _timeline_from_nodes_and_edges(nodes: list[Node], edges: list[Edge]) -> list
         target_label = node_by_id.get(edge.target_id).label if edge.target_id in node_by_id else edge.target_id[:8]
         items.append(
             ContextTimelineItem(
-                kind=f"edge_{edge.relationship.value}",
+                kind=f"edge_{edge.relationship}",
                 timestamp=edge.created_at,
                 label=f"{source_label} -> {target_label}",
-                summary=edge.relationship.value,
+                summary=edge.relationship,
                 edge_id=edge.id,
             )
         )
@@ -132,11 +133,13 @@ def build_context_bundle(
     tenant_id: str,
     project: str,
     mode: str,
+    retrieval_mode: str,
     audience: str,
     query: str,
     summary: str,
     nodes: list[Node],
     edges: list[Edge],
+    replay_hits: list[ReplayHit],
     stats: GraphStats,
 ) -> ContextBundle:
     timeline = _timeline_from_nodes_and_edges(nodes, edges)
@@ -154,11 +157,13 @@ def build_context_bundle(
         tenant_id=tenant_id,
         project=project,
         mode=mode,
+        retrieval_mode=retrieval_mode,
         audience=audience,
         query=query,
         summary=summary,
         nodes=nodes,
         edges=edges,
+        replay_hits=replay_hits,
         timeline=timeline,
         stats=stats,
         render_hints=render_hints,
@@ -193,12 +198,12 @@ def _decision_support_lines(bundle: ContextBundle) -> list[str]:
             continue
         support_nodes: list[str] = []
         for edge in bundle.edges:
-            if edge.relationship.value not in support_relationships:
+            if edge.relationship not in support_relationships:
                 continue
             if edge.source_id == node.id and edge.target_id in node_by_id:
-                support_nodes.append(f"{node_by_id[edge.target_id].label} ({edge.relationship.value})")
+                support_nodes.append(f"{node_by_id[edge.target_id].label} ({edge.relationship})")
             elif edge.target_id == node.id and edge.source_id in node_by_id:
-                support_nodes.append(f"{node_by_id[edge.source_id].label} ({edge.relationship.value})")
+                support_nodes.append(f"{node_by_id[edge.source_id].label} ({edge.relationship})")
         if support_nodes:
             lines.append(f'- "{node.label}"')
             for support in support_nodes:
@@ -212,11 +217,11 @@ def _conflict_lines(bundle: ContextBundle) -> list[str]:
     node_by_id = {node.id: node for node in bundle.nodes}
     lines: list[str] = []
     for edge in bundle.edges:
-        if edge.relationship.value not in {"contradicts", "updates"}:
+        if edge.relationship not in {"contradicts", "updates"}:
             continue
         source_label = node_by_id.get(edge.source_id).label if edge.source_id in node_by_id else edge.source_id[:8]
         target_label = node_by_id.get(edge.target_id).label if edge.target_id in node_by_id else edge.target_id[:8]
-        lines.append(f'- "{source_label}" --[{edge.relationship.value}]--> "{target_label}"')
+        lines.append(f'- "{source_label}" --[{edge.relationship}]--> "{target_label}"')
     return lines
 
 
@@ -229,7 +234,7 @@ def _relationship_lines(bundle: ContextBundle) -> list[str]:
         source_label = node_by_id.get(edge.source_id).label if edge.source_id in node_by_id else edge.source_id[:8]
         target_label = node_by_id.get(edge.target_id).label if edge.target_id in node_by_id else edge.target_id[:8]
         lines.append(
-            f'- "{source_label}" --[{edge.relationship.value}, weight={edge.weight:.2f}]--> "{target_label}"'
+            f'- "{source_label}" --[{edge.relationship}, weight={edge.weight:.2f}]--> "{target_label}"'
         )
     return lines
 
@@ -287,6 +292,16 @@ def render_context_bundle_markdown(
 
     lines.extend(["", "## Relationship Map", ""])
     lines.extend(_relationship_lines(bundle) if include_edges else ["- Edge export disabled for this bundle."])
+    lines.extend(["", "## Replay Evidence", ""])
+    if bundle.replay_hits:
+        for hit in bundle.replay_hits[:10]:
+            timestamp = f" `{hit.observed_at.isoformat()}`" if include_timestamps else ""
+            lines.append(
+                f'- [session `{hit.session_id or "n/a"}` turn {hit.turn_index} role `{hit.role or "unknown"}`]{timestamp} '
+                f'{hit.transcript_snippet or hit.transcript_text}'
+            )
+    else:
+        lines.append("- No replay evidence included in this bundle.")
     lines.extend(["", "## Full Node Appendix", ""])
 
     for chunk_index, start in enumerate(range(0, len(bundle.nodes), APPENDIX_CHUNK_SIZE), start=1):
@@ -360,6 +375,18 @@ def render_context_bundle_json(
             _edge_to_export_dict(edge, include_timestamps=include_timestamps)
             for edge in bundle.edges
         ] if include_edges else [],
+        "replay_hits": [
+            {
+                "score": hit.score,
+                "session_id": hit.session_id,
+                "turn_index": hit.turn_index,
+                "role": hit.role,
+                "transcript_text": hit.transcript_text,
+                "transcript_snippet": hit.transcript_snippet,
+                "observed_at": hit.observed_at.isoformat(),
+            }
+            for hit in bundle.replay_hits
+        ],
         "timeline": [
             {
                 "kind": item.kind,
@@ -438,6 +465,7 @@ def export_context_bundle_files(
         tenant_id=bundle.tenant_id,
         project=bundle.project,
         mode=bundle.mode,
+        retrieval_mode=getattr(bundle, "retrieval_mode", "graph"),
         query=bundle.query,
         summary=bundle.summary,
         markdown_path=str(markdown_path) if markdown_path is not None else None,

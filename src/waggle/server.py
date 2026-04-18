@@ -46,6 +46,8 @@ from waggle.models import (
     ContextScopeResult,
     GraphDiffResult,
     GraphStats,
+    MarkdownVaultExportResult,
+    MarkdownVaultImportResult,
     Node,
     NodeHistoryResult,
     NodeType,
@@ -74,11 +76,20 @@ from waggle.serializer import (
 )
 
 LOGGER = logging.getLogger(__name__)
-WRITE_HEAVY_TOOLS = {"store_node", "store_edge", "decompose_and_store", "observe_conversation", "import_graph_backup"}
+WRITE_HEAVY_TOOLS = {
+    "store_node",
+    "store_edge",
+    "decompose_and_store",
+    "observe_conversation",
+    "import_graph_backup",
+    "import_markdown_vault",
+}
 REQUIRED_RUNTIME_METHODS = (
     "export_context_bundle",
+    "export_markdown_vault",
     "list_context_scopes",
     "get_node_history",
+    "import_markdown_vault",
     "timeline",
     "list_conflicts",
     "resolve_conflict",
@@ -241,6 +252,11 @@ class WaggleServer:
                         "agent_id": {"type": "string", "default": ""},
                         "project": {"type": "string", "default": ""},
                         "session_id": {"type": "string", "default": ""},
+                        "retrieval_mode": {
+                            "type": "string",
+                            "enum": ["graph", "replay", "fusion"],
+                            "default": "graph",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -409,6 +425,11 @@ class WaggleServer:
                         "session_id": {"type": "string", "default": ""},
                         "max_nodes": {"type": "integer", "default": 25},
                         "max_depth": {"type": "integer", "default": 2},
+                        "retrieval_mode": {
+                            "type": "string",
+                            "enum": ["graph", "replay", "fusion"],
+                            "default": "graph",
+                        },
                         "format": {"type": "string", "enum": ["markdown", "json", "both"], "default": "both"},
                         "output_path": {"type": "string"},
                         "include_edges": {"type": "boolean", "default": True},
@@ -425,6 +446,29 @@ class WaggleServer:
                     "type": "object",
                     "properties": {"input_path": {"type": "string"}},
                     "required": ["input_path"],
+                },
+            ),
+            types.Tool(
+                name="export_markdown_vault",
+                description="Export the current graph as an Obsidian-compatible Markdown vault.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "root_path": {"type": "string"},
+                        "project": {"type": "string", "default": ""},
+                        "agent_id": {"type": "string", "default": ""},
+                        "session_id": {"type": "string", "default": ""},
+                    },
+                    "required": ["root_path"],
+                },
+            ),
+            types.Tool(
+                name="import_markdown_vault",
+                description="Import an Obsidian-compatible Markdown vault into the current graph non-destructively.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"root_path": {"type": "string"}},
+                    "required": ["root_path"],
                 },
             ),
         ]
@@ -538,7 +582,7 @@ class WaggleServer:
                                 {
                                     "other_node_id": conflict.other_node_id,
                                     "other_node_label": conflict.other_node_label,
-                                    "relationship": conflict.relationship.value,
+                                    "relationship": conflict.relationship,
                                     "reason": conflict.reason,
                                 }
                                 for conflict in store_result.conflicts
@@ -549,11 +593,11 @@ class WaggleServer:
                     edge = graph.add_edge(
                         source_id=arguments["source_id"],
                         target_id=arguments["target_id"],
-                        relationship=RelationType(arguments["relationship"]),
+                        relationship=arguments["relationship"],
                         weight=float(arguments.get("weight", 1.0)),
                     )
                     result = self._tool_result(
-                        f"Created edge {edge.id} linking {edge.source_id} to {edge.target_id} as {edge.relationship.value}.",
+                        f"Created edge {edge.id} linking {edge.source_id} to {edge.target_id} as {edge.relationship}.",
                         self._edge_payload(edge),
                     )
                 elif name == "query_graph":
@@ -564,6 +608,7 @@ class WaggleServer:
                         agent_id=arguments.get("agent_id", ""),
                         project=arguments.get("project", ""),
                         session_id=arguments.get("session_id", ""),
+                        retrieval_mode=arguments.get("retrieval_mode", "graph"),
                     )
                     result = self._tool_result(
                         serialize_subgraph(subgraph),
@@ -683,6 +728,7 @@ class WaggleServer:
                         session_id=arguments.get("session_id", ""),
                         max_nodes=int(arguments.get("max_nodes", 25)),
                         max_depth=int(arguments.get("max_depth", 2)),
+                        retrieval_mode=arguments.get("retrieval_mode", "graph"),
                         format=arguments.get("format", "both"),
                         output_path=arguments.get("output_path"),
                         include_edges=bool(arguments.get("include_edges", True)),
@@ -707,6 +753,23 @@ class WaggleServer:
                             "edges_created": imported.edges_created,
                             "edges_updated": imported.edges_updated,
                         },
+                    )
+                elif name == "export_markdown_vault":
+                    exported = graph.export_markdown_vault(
+                        root_path=arguments["root_path"],
+                        project=arguments.get("project", ""),
+                        agent_id=arguments.get("agent_id", ""),
+                        session_id=arguments.get("session_id", ""),
+                    )
+                    result = self._tool_result(
+                        f"Exported Markdown vault to {exported.root_path}.",
+                        self._markdown_vault_export_payload(exported),
+                    )
+                elif name == "import_markdown_vault":
+                    imported = graph.import_markdown_vault(root_path=arguments["root_path"])
+                    result = self._tool_result(
+                        f"Imported Markdown vault from {imported.root_path}.",
+                        self._markdown_vault_import_payload(imported),
                     )
                 else:
                     raise ValidationFailure(f"Unknown tool: {name}")
@@ -790,7 +853,7 @@ class WaggleServer:
             "tenant_id": getattr(edge, "tenant_id", ""),
             "source_id": edge.source_id,
             "target_id": edge.target_id,
-            "relationship": edge.relationship.value,
+            "relationship": edge.relationship,
             "weight": edge.weight,
             "metadata": edge.metadata,
             "created_at": edge.created_at.isoformat(),
@@ -799,9 +862,39 @@ class WaggleServer:
     def _subgraph_payload(self, result: SubgraphResult) -> dict[str, Any]:
         return {
             "query": result.query,
+            "retrieval_mode": result.retrieval_mode,
             "total_nodes_in_graph": result.total_nodes_in_graph,
             "nodes": [self._node_payload(node) for node in result.nodes],
             "edges": [self._edge_payload(edge) for edge in result.edges],
+            "replay_hits": [
+                {
+                    "score": hit.score,
+                    "session_id": hit.session_id,
+                    "turn_index": hit.turn_index,
+                    "role": hit.role,
+                    "transcript_text": hit.transcript_text,
+                    "transcript_snippet": hit.transcript_snippet,
+                    "observed_at": hit.observed_at.isoformat(),
+                }
+                for hit in result.replay_hits
+            ],
+            "fusion_hits": [
+                {
+                    "content": hit.content,
+                    "score": hit.score,
+                    "source_lane": hit.source_lane,
+                    "graph_rank": hit.graph_rank,
+                    "replay_rank": hit.replay_rank,
+                    "fused_rank": hit.fused_rank,
+                    "node_id": hit.node_id,
+                    "node_type": hit.node_type,
+                    "edges": hit.edges,
+                    "session_id": hit.session_id,
+                    "transcript_snippet": hit.transcript_snippet,
+                    "turn_index": hit.turn_index,
+                }
+                for hit in result.fusion_hits
+            ],
         }
 
     def _observation_payload(self, result: ObservationResult) -> dict[str, Any]:
@@ -813,7 +906,7 @@ class WaggleServer:
                 {
                     "other_node_id": conflict.other_node_id,
                     "other_node_label": conflict.other_node_label,
-                    "relationship": conflict.relationship.value,
+                    "relationship": conflict.relationship,
                     "reason": conflict.reason,
                 }
                 for conflict in result.conflicts
@@ -890,6 +983,7 @@ class WaggleServer:
             "tenant_id": result.tenant_id,
             "project": result.project,
             "mode": result.mode,
+            "retrieval_mode": result.retrieval_mode,
             "query": result.query,
             "summary": result.summary,
             "markdown_path": result.markdown_path,
@@ -942,6 +1036,28 @@ class WaggleServer:
                 }
                 for node in stats.most_recent_nodes
             ],
+        }
+
+    def _markdown_vault_export_payload(self, result: MarkdownVaultExportResult) -> dict[str, Any]:
+        return {
+            "root_path": result.root_path,
+            "tenant_id": result.tenant_id,
+            "project": result.project,
+            "node_count": result.node_count,
+            "edge_count": result.edge_count,
+            "files_written": result.files_written,
+        }
+
+    def _markdown_vault_import_payload(self, result: MarkdownVaultImportResult) -> dict[str, Any]:
+        return {
+            "root_path": result.root_path,
+            "tenant_id": result.tenant_id,
+            "nodes_created": result.nodes_created,
+            "nodes_updated": result.nodes_updated,
+            "edges_created": result.edges_created,
+            "edges_deleted": result.edges_deleted,
+            "stub_nodes_created": result.stub_nodes_created,
+            "conflicts": result.conflicts,
         }
 
     def _validate_tool_payload(self, name: str, arguments: dict[str, Any]) -> None:
@@ -1221,12 +1337,22 @@ def _build_parser() -> argparse.ArgumentParser:
     export_context_bundle.add_argument("--session-id", default="")
     export_context_bundle.add_argument("--max-nodes", type=int, default=25)
     export_context_bundle.add_argument("--max-depth", type=int, default=2)
+    export_context_bundle.add_argument("--retrieval-mode", choices=["graph", "replay", "fusion"], default="graph")
     export_context_bundle.add_argument("--format", choices=["markdown", "json", "both"], default="both")
     export_context_bundle.add_argument("--output-path", default=None)
     export_context_bundle.add_argument("--include-edges", action=argparse.BooleanOptionalAction, default=True)
     export_context_bundle.add_argument("--include-timestamps", action=argparse.BooleanOptionalAction, default=True)
     export_context_bundle.add_argument("--include-source-prompt", action=argparse.BooleanOptionalAction, default=False)
     export_context_bundle.add_argument("--audience", choices=["llm", "human"], default="llm")
+
+    export_markdown_vault = subparsers.add_parser("export-markdown-vault")
+    export_markdown_vault.add_argument("--root-path", required=True)
+    export_markdown_vault.add_argument("--project", default="")
+    export_markdown_vault.add_argument("--agent-id", default="")
+    export_markdown_vault.add_argument("--session-id", default="")
+
+    import_markdown_vault = subparsers.add_parser("import-markdown-vault")
+    import_markdown_vault.add_argument("--root-path", required=True)
 
     subparsers.add_parser("init", help="Interactive setup wizard — configure an MCP client to use waggle-mcp.")
     return parser
@@ -1289,6 +1415,7 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
             session_id=getattr(args, "session_id", ""),
             max_nodes=args.max_nodes,
             max_depth=args.max_depth,
+            retrieval_mode=getattr(args, "retrieval_mode", "graph"),
             format=args.format,
             output_path=args.output_path,
             include_edges=args.include_edges,
@@ -1297,6 +1424,19 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
             audience=args.audience,
         )
         print(json.dumps(exported.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "export-markdown-vault":
+        exported = backend.export_markdown_vault(
+            root_path=args.root_path,
+            project=getattr(args, "project", ""),
+            agent_id=getattr(args, "agent_id", ""),
+            session_id=getattr(args, "session_id", ""),
+        )
+        print(json.dumps(exported.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "import-markdown-vault":
+        imported = backend.import_markdown_vault(root_path=args.root_path)
+        print(json.dumps(imported.model_dump(mode="json"), indent=2))
         return 0
     raise ValidationFailure(f"Unknown command: {args.command}")
 

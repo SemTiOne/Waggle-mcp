@@ -40,11 +40,15 @@ _FILE_PATH_RE = re.compile(r"\b(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]+\b|\b[\w.-]+\.(
 _ENTITY_RE = re.compile(r"\b(?:[A-Z]{2,}[A-Z0-9]*|[A-Z][a-z]+(?:[A-Z][A-Za-z0-9]+)+|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
 _PREFERENCE_RE = re.compile(r"\b(?:i\s+)?(?:prefer|like|love|want|favo(?:u)?r|avoid)\b", re.IGNORECASE)
 _DECISION_RE = re.compile(
-    r"\b(?:let's use|lets use|we should use|go with|we decided|decided to use|choose|chose|chosen|picked)\b",
+    r"\b(?:let's use|lets use|we should use|go with|stay with|stick with|we are using|we're using|"
+    r"we decided|decided to use|final decision(?:\s+is)?|decision is|choose|chose|chosen|picked)\b",
     re.IGNORECASE,
 )
 _NEGATION_RE = re.compile(r"\b(?:avoid|not|don't|dont|won't|wont|no longer)\b", re.IGNORECASE)
-_SWITCH_RE = re.compile(r"\b(?:switch(?:ing)?|move(?:ing)?|migrate(?:ing)?|reconsider(?:ing)?|pivot(?:ing)?)\b", re.IGNORECASE)
+_SWITCH_RE = re.compile(
+    r"\b(?:switch(?:ed|ing)?|move(?:d|ing)?|migrate(?:d|ing)?|reconsider(?:ed|ing)?|pivot(?:ed|ing)?|dropped)\b",
+    re.IGNORECASE,
+)
 _ASSISTANT_MEMORY_PREFIX_RE = re.compile(
     r"^\s*(?:(?:understood|got it|okay|ok|sure)[,\s.-]+)?(?:i(?:'ll| will)\s+)?"
     r"(?:remember|note|store|track|keep(?:\s+in\s+mind)?)(?:\s+that)?\s+",
@@ -58,6 +62,10 @@ _BACKEND_RE = re.compile(
 )
 _JWT_EXPIRY_RE = re.compile(
     r"\bjwt\b.*?\b(?:expire|expires|expiry|ttl)\b.*?\b(?P<duration>\d+\s+(?:seconds?|minutes?|hours?|days?))\b",
+    re.IGNORECASE,
+)
+_RATE_LIMIT_RE = re.compile(
+    r"\b(?:api\s+)?rate limit\b.*?\b(?:is|of)?\s*(?P<count>\d+)\s*(?P<unit>requests?\s+per\s+\w+|req(?:uests?)?/?\w+|rpm)\b",
     re.IGNORECASE,
 )
 _REQUIREMENT_RE = re.compile(r"\b(?:need|needs|must have|require|requires)\s+(?P<item>[^.?!]+)", re.IGNORECASE)
@@ -250,7 +258,8 @@ def extract_choice_entity(text: str) -> tuple[str, str] | None:
     lowered = normalize_text(text)
     choice_patterns = (
         r"(?:choose|chose|chosen|picked|use|using|go with|decided to use)\s+(?P<token>[A-Za-z0-9.+-]+)",
-        r"(?:switch to|move to|migrate to)\s+(?P<token>[A-Za-z0-9.+-]+)",
+        r"(?:we are using|we're using|stay with|stick with|final decision is|decision is|record)\s+(?P<token>[A-Za-z0-9.+-]+)",
+        r"(?:switch to|switched to|move to|moved to|migrate to|migrated to|pivot to|pivoted to)\s+(?P<token>[A-Za-z0-9.+-]+)",
     )
     for pattern in choice_patterns:
         match = re.search(pattern, lowered)
@@ -690,6 +699,8 @@ def _infer_observed_node_type(text: str) -> NodeType | None:
         return NodeType.DECISION
     if _JWT_EXPIRY_RE.search(stripped):
         return NodeType.FACT
+    if _RATE_LIMIT_RE.search(stripped):
+        return NodeType.FACT
     if _BACKEND_RE.search(stripped):
         return NodeType.FACT
     if _REQUIREMENT_RE.search(stripped):
@@ -712,6 +723,10 @@ def _normalize_observed_sentence(text: str, *, speaker: str) -> str:
 def _extract_structured_observation_candidates(sentence: str, *, speaker: str) -> list[dict[str, object]]:
     tags = ["observed", f"speaker:{speaker}"]
     candidates: list[dict[str, object]] = []
+    lowered = normalize_text(sentence)
+
+    if sentence.strip().endswith("?") or _QUESTION_PREFIX_RE.match(lowered):
+        return candidates
 
     backend_match = _BACKEND_RE.search(sentence)
     if backend_match:
@@ -735,6 +750,19 @@ def _extract_structured_observation_candidates(sentence: str, *, speaker: str) -
                 "content": f"JWT tokens expire in {duration}.",
                 "node_type": NodeType.FACT,
                 "tags": [*tags, "auth"],
+                }
+            )
+
+    rate_limit_match = _RATE_LIMIT_RE.search(sentence)
+    if rate_limit_match:
+        count = rate_limit_match.group("count")
+        unit = " ".join(rate_limit_match.group("unit").split())
+        candidates.append(
+            {
+                "label": "API rate limit",
+                "content": f"API rate limit is {count} {unit}.",
+                "node_type": NodeType.FACT,
+                "tags": [*tags, "rate-limit", "api"],
             }
         )
 

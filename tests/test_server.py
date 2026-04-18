@@ -331,6 +331,30 @@ def test_export_context_bundle_cli_command(tmp_path: Path, capsys: pytest.Captur
     assert Path(payload["json_path"]).exists()
 
 
+def test_markdown_vault_tool_and_cli_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    app = make_app(tmp_path)
+    app.graph.add_node(
+        label="Vault Decision",
+        content="Export this node to a markdown vault.",
+        node_type=NodeType.DECISION,
+        project="alpha",
+    )
+
+    tool_result = app.handle_tool_call(
+        "export_markdown_vault",
+        {"root_path": str(tmp_path / "vault"), "project": "alpha"},
+    )
+    assert tool_result.isError is False
+    assert tool_result.structuredContent["files_written"]
+
+    args = SimpleNamespace(command="export-markdown-vault", root_path=str(tmp_path / "vault-cli"), project="", agent_id="", session_id="")
+    exit_code = _run_admin_command(app.config, args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["files_written"]
+
+
 def test_runtime_feature_parity_check_passes_for_current_memory_graph() -> None:
     _assert_runtime_feature_parity()
 

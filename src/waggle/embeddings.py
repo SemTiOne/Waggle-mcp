@@ -39,6 +39,18 @@ class EmbeddingModel:
     def uses_deterministic_mode(self) -> bool:
         return self._fallback_to_deterministic or self.model_name.strip().lower() in self._DETERMINISTIC_MODELS
 
+    @property
+    def model_version(self) -> str:
+        if self.uses_deterministic_mode:
+            return "deterministic-v1"
+        model = self.model
+        if model is None:
+            return "deterministic-v1"
+        version = getattr(model, "__version__", None)
+        if version:
+            return str(version)
+        return f"{model.__class__.__module__}.{model.__class__.__name__}"
+
     def _load_transformer_model(self) -> Any:
         from sentence_transformers import SentenceTransformer
 
