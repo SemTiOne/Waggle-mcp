@@ -160,6 +160,43 @@ def test_entity_resolution_reuses_acronym_matches(tmp_path: Path) -> None:
     assert second.dedup_reason == "acronym_entity_match"
 
 
+def test_entityless_paraphrase_nodes_can_be_reused(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    first = graph.add_node(
+        label="Dark interface preference",
+        content="The user wants the app to default to a dark interface",
+        node_type=NodeType.PREFERENCE,
+    )
+    second = graph.add_node(
+        label="Low-light UI preference",
+        content="They prefer a low-light theme whenever the product opens",
+        node_type=NodeType.PREFERENCE,
+    )
+
+    assert first.created is True
+    assert second.created is False
+    assert second.node.id == first.node.id
+    assert second.dedup_reason == "canonical_concept_overlap"
+
+
+def test_temporal_near_duplicates_do_not_merge_across_months(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    first = graph.add_node(
+        label="April database choice",
+        content="In April, the team chose PostgreSQL for the production database",
+        node_type=NodeType.DECISION,
+    )
+    second = graph.add_node(
+        label="May database status",
+        content="In May, the team confirmed PostgreSQL is still used in production",
+        node_type=NodeType.DECISION,
+    )
+
+    assert first.created is True
+    assert second.created is True
+    assert graph.get_stats().total_nodes == 2
+
+
 def test_query_ranking_uses_label_lexical_overlap(tmp_path: Path) -> None:
     graph = make_graph(tmp_path)
     graph.add_node(
@@ -951,6 +988,119 @@ def test_query_supports_temporal_latest_and_oldest_bias(tmp_path: Path) -> None:
 
     assert latest.nodes[0].label == "Auth v2"
     assert originally.nodes[0].label == "Auth v1"
+
+
+def test_temporal_latest_is_gated_to_query_topic(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.add_node(
+        label="Auth rejected",
+        content="Auth request rejected by admin",
+        node_type=NodeType.FACT,
+        tags=["security-review"],
+    )
+    graph.add_node(
+        label="Auth expired",
+        content="Auth token expired at 10am",
+        node_type=NodeType.FACT,
+        tags=["security-review"],
+    )
+    graph.add_node(
+        label="Privacy export",
+        content="Privacy export completed",
+        node_type=NodeType.FACT,
+        tags=["privacy-export"],
+    )
+    graph.add_node(
+        label="Model staging",
+        content="Model deployed to staging",
+        node_type=NodeType.FACT,
+        tags=["model-ops"],
+    )
+
+    result = graph.query(query="latest auth token", max_nodes=1, max_depth=0)
+
+    assert result.nodes[0].label == "Auth expired"
+
+
+def test_negation_query_prefers_rejected_node(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.add_node(
+        label="Model canary required",
+        content="Model releases require offline evaluation plus a canary window.",
+        node_type=NodeType.DECISION,
+    )
+    graph.add_node(
+        label="PM approval gate",
+        content="Full model rollout now requires product-manager approval after the canary.",
+        node_type=NodeType.DECISION,
+    )
+    graph.add_node(
+        label="No model auto-promotion",
+        content="Evaluation winners must not be auto-promoted to production.",
+        node_type=NodeType.DECISION,
+    )
+
+    result = graph.query(
+        query="which model deployment shortcut remains forbidden even when evaluation looks good",
+        max_nodes=1,
+        max_depth=0,
+    )
+
+    assert result.nodes[0].label == "No model auto-promotion"
+
+
+def test_implicit_reference_security_review_emergency_access_prefers_break_glass(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.add_node(
+        label="RBAC only",
+        content="Access control started as role-based access only.",
+        node_type=NodeType.DECISION,
+        tags=["scenario:access_control"],
+    )
+    graph.add_node(
+        label="Audited break-glass access",
+        content="Break-glass access now uses per-user accounts with audit trails.",
+        node_type=NodeType.DECISION,
+        tags=["scenario:security_review_actions"],
+    )
+
+    result = graph.query(
+        query="what was the final answer to that security review item about emergency access",
+        max_nodes=1,
+        max_depth=0,
+    )
+
+    assert result.nodes[0].label == "Audited break-glass access"
+
+
+def test_implicit_reference_pm_gate_prefers_no_auto_promote(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.add_node(
+        label="Canary required",
+        content="Model releases require offline evaluation plus a canary window.",
+        node_type=NodeType.DECISION,
+        tags=["scenario:model_ops_rollout"],
+    )
+    graph.add_node(
+        label="PM approval gate",
+        content="Full model rollout now requires product-manager approval after the canary.",
+        node_type=NodeType.DECISION,
+        tags=["scenario:model_ops_rollout"],
+    )
+    graph.add_node(
+        label="No model auto-promotion",
+        content="Evaluation winners must not be auto-promoted to production.",
+        node_type=NodeType.DECISION,
+        tags=["scenario:model_ops_rollout"],
+    )
+
+    result = graph.query(
+        query="what rejected model rollout behavior came before the PM gate",
+        max_nodes=1,
+        max_depth=0,
+    )
+
+    assert result.nodes[0].label == "No model auto-promotion"
 
 
 def test_graph_diff_and_prime_context(tmp_path: Path) -> None:

@@ -93,6 +93,19 @@ COMPARATIVE_TASK_QUERY_POLICY: dict[str, dict[str, Any]] = {
     "adversarial_paraphrase": {"retrieval_mode": "graph", "max_depth": 1},
 }
 
+EXPANSION_TRIGGERS = (
+    "how did ",
+    "what changed",
+    "relationship between",
+    "connected to",
+    "depends on",
+    "because of",
+    "before and after",
+    "why did ",
+    " and what ",
+    " and ",
+)
+
 COMPARATIVE_TRANSCRIPT_RE = re.compile(
     r"^\s*User:\s*(?P<user>.*?)\s*(?:Agent|Assistant):\s*(?P<assistant>.*?)\s*$",
     re.IGNORECASE | re.DOTALL,
@@ -177,8 +190,16 @@ def _estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(normalized) / 4))
 
 
-def _comparative_query_config(task_family: str) -> dict[str, Any]:
-    return dict(COMPARATIVE_TASK_QUERY_POLICY.get(task_family, {"retrieval_mode": "flat", "max_depth": 0}))
+def _should_expand_query(query: str) -> bool:
+    normalized = query.lower()
+    return any(trigger in normalized for trigger in EXPANSION_TRIGGERS)
+
+
+def _comparative_query_config(task_family: str, query: str = "") -> dict[str, Any]:
+    config = dict(COMPARATIVE_TASK_QUERY_POLICY.get(task_family, {"retrieval_mode": "flat", "max_depth": 0}))
+    config["expand_depth"] = 0
+    config["would_expand"] = config["retrieval_mode"] == "graph" and _should_expand_query(query)
+    return config
 
 
 def _policy_summary() -> dict[str, Any]:
@@ -186,13 +207,15 @@ def _policy_summary() -> dict[str, Any]:
     for task_family, config in COMPARATIVE_TASK_QUERY_POLICY.items():
         entry = grouped.setdefault(
             str(config["retrieval_mode"]),
-            {"task_families": [], "max_depths": []},
+            {"task_families": [], "max_depths": [], "expand_depths": []},
         )
         entry["task_families"].append(task_family)
         entry["max_depths"].append(int(config["max_depth"]))
+        entry["expand_depths"].append(int(config.get("expand_depth", 0)))
     for entry in grouped.values():
         entry["task_families"].sort()
         entry["max_depths"] = sorted(set(entry["max_depths"]))
+        entry["expand_depths"] = sorted(set(entry["expand_depths"]))
     return grouped
 
 
@@ -693,11 +716,12 @@ def _run_waggle_system(
 
     results: list[ComparativeCaseResult] = []
     for case in comparative_eval["queries"]:
-        query_config = _comparative_query_config(case["task_family"])
+        query_config = _comparative_query_config(case["task_family"], case["query"])
         subgraph = graph.query(
             query=case["query"],
             max_nodes=top_k,
             max_depth=int(query_config["max_depth"]),
+            expand_depth=int(query_config.get("expand_depth", 0)),
         )
         retrieved_fact_ids = [
             fact_id
@@ -726,7 +750,11 @@ def _run_waggle_system(
 
     return {
         "system": "waggle",
-        "parameters": {"top_k": top_k, "task_family_max_depth": {key: value["max_depth"] for key, value in COMPARATIVE_TASK_QUERY_POLICY.items()}},
+        "parameters": {
+            "top_k": top_k,
+            "task_family_max_depth": {key: value["max_depth"] for key, value in COMPARATIVE_TASK_QUERY_POLICY.items()},
+            "task_family_expand_depth": {key: value.get("expand_depth", 0) for key, value in COMPARATIVE_TASK_QUERY_POLICY.items()},
+        },
         "query_policy": _policy_summary(),
     }, results
 
@@ -942,6 +970,7 @@ def build_markdown_summary(report: BenchmarkReport) -> str:
         for mode, details in waggle_metrics["query_policy"].items():
             lines.append(
                 f"- `{mode}`: max_depth={','.join(str(value) for value in details['max_depths'])}; "
+                f"expand_depth={','.join(str(value) for value in details.get('expand_depths', [0]))}; "
                 f"families={', '.join(details['task_families'])}"
             )
     if waggle_metrics.get("by_retrieval_mode"):

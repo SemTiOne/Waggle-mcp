@@ -153,5 +153,75 @@
     "first":  { "label": "SQLite concurrent write limit", "content": "SQLite cannot handle concurrent writes at scale" },
     "second": { "label": "write concurrency problem",     "content": "Multiple simultaneous writes caused SQLite locking issues" },
     "should_dedup": true
+  },
+  {
+    "name": "dark_mode_entityless_paraphrase",
+    "node_type": "preference",
+    "first":  { "label": "Dark interface preference", "content": "The user wants the app to default to a dark interface" },
+    "second": { "label": "Low-light UI preference",   "content": "They prefer a low-light theme whenever the product opens" },
+    "should_dedup": true
+  },
+  {
+    "name": "integration_tests_entityless_paraphrase",
+    "node_type": "fact",
+    "first":  { "label": "Integration tests needed", "content": "Add end-to-end integration tests before the release" },
+    "second": { "label": "Release validation tests", "content": "The launch needs full workflow tests covering the integrated system" },
+    "should_dedup": true
+  },
+  {
+    "name": "weekly_review_entityless_paraphrase",
+    "node_type": "fact",
+    "first":  { "label": "Weekly migration review", "content": "Review migration scripts every week before they ship" },
+    "second": { "label": "Migration script cadence", "content": "Check database migration files on a weekly schedule prior to deployment" },
+    "should_dedup": true
+  },
+  {
+    "name": "decision_vs_fact_same_topic",
+    "node_type": "decision",
+    "first":  { "label": "Keep local embeddings", "content": "We decided local embeddings are the default for private projects" },
+    "second": { "label": "Local embeddings default", "content": "Private projects use on-device vector embeddings by default" },
+    "should_dedup": true
+  },
+  {
+    "name": "error_budget_entityless_paraphrase",
+    "node_type": "fact",
+    "first":  { "label": "Error budget policy", "content": "Pause feature work when the monthly error budget is exhausted" },
+    "second": { "label": "Reliability gate", "content": "Stop new feature delivery after reliability spend is used up for the month" },
+    "should_dedup": true
+  },
+  {
+    "name": "postgres_april_vs_may_temporal_false_friend",
+    "node_type": "decision",
+    "first":  { "label": "April database choice", "content": "In April, the team chose PostgreSQL for the production database" },
+    "second": { "label": "May database status", "content": "In May, the team confirmed PostgreSQL is still used in production" },
+    "should_dedup": false
+  },
+  {
+    "name": "dark_mode_vs_compact_layout_false_friend",
+    "node_type": "preference",
+    "first":  { "label": "Dark interface preference", "content": "The user wants the app to default to a dark interface" },
+    "second": { "label": "Compact layout preference", "content": "The user wants dense table layouts with fewer empty spaces" },
+    "should_dedup": false
+  },
+  {
+    "name": "integration_tests_vs_smoke_tests_false_friend",
+    "node_type": "fact",
+    "first":  { "label": "Integration tests needed", "content": "Add end-to-end integration tests before the release" },
+    "second": { "label": "Smoke tests enough", "content": "Run only a quick smoke test before the patch deployment" },
+    "should_dedup": false
+  },
+  {
+    "name": "weekly_review_vs_daily_rotation_false_friend",
+    "node_type": "fact",
+    "first":  { "label": "Weekly migration review", "content": "Review migration scripts every week before they ship" },
+    "second": { "label": "Daily key rotation", "content": "Rotate API keys every day during the incident response drill" },
+    "should_dedup": false
+  },
+  {
+    "name": "error_budget_vs_latency_budget_false_friend",
+    "node_type": "fact",
+    "first":  { "label": "Error budget policy", "content": "Pause feature work when the monthly error budget is exhausted" },
+    "second": { "label": "Latency budget policy", "content": "Reject responses that exceed the 250 millisecond latency budget" },
+    "should_dedup": false
   }
 ]

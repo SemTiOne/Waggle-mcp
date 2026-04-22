@@ -28,7 +28,7 @@
 
 ---
 
-## What's New — v0.1.7
+## What's New — v0.1.8
 
 - **Benchmark harness**: end-to-end `WaggleAdapter` connecting the graph engine to ConvoMem / MemBench runners with automated exact-match scoring and latency logging.
 - **LongMemEval integration**: CLI-driven retrieval evaluation against the official LongMemEval split (`97.4% R@5` / `88.2% Exact@5` in `graph_raw`, `96.4%` / `85.6%` in `graph_hybrid`).
@@ -410,11 +410,11 @@ Notes:
 | `observe_conversation` | ~1.54 ms (mean) | Single conversation turn ingestion, local `sqlite` + deterministic embeddings |
 | `query_graph` | ~1.60 ms (mean) | Subgraph retrieval (`max_nodes=12`, `max_depth=2`) |
 | `graph_diff` | ~0.80 ms (mean) | Temporal diff over local graph |
-| Context tokens (comparative mean) | `56.3` vs `150.2` | Waggle vs naive RAG baseline (`~2.7x` lower-token) |
+| Context tokens (comparative mean) | `63.0` vs `161.8` | Waggle vs naive RAG baseline (`~2.6x` lower-token) |
 
 Sources: [performance_snapshot.md](./tests/artifacts/verification/2026-04-20-performance-snapshot/performance_snapshot.md), [benchmark_current.md](./tests/artifacts/benchmark_current.md)
 
-> **Example:** Retrieving a database decision stored days ago uses about `56` tokens from a Waggle subgraph vs about `150` tokens from naive context replay (`~2.7x` lower-token).
+> **Example:** Retrieving a database decision stored days ago uses about `63` tokens from a Waggle subgraph vs about `162` tokens from naive context replay (`~2.6x` lower-token).
 
 ---
 
@@ -445,11 +445,11 @@ For exact setup details and verification snapshots, see [tests/artifacts/README.
 |------|--------|--------|
 | Extraction | 25-case deterministic fixture | `100.0%` (source: [`benchmark_current.md`](./tests/artifacts/benchmark_current.md)) |
 | Retrieval | 18-query retrieval fixture | `83.3% Hit@k` (source: [`benchmark_current.md`](./tests/artifacts/benchmark_current.md)) |
-| Query stress | 40 adversarial retrieval-only cases | `97.5% Hit@k`, `97.5% exact support` (source: [`benchmark_current.md`](./tests/artifacts/benchmark_current.md)) |
-| Deduplication | 22 cases (semi-semantic) | `0` false merges at threshold; `77.3%` overall (source: [`benchmark_current.md`](./tests/artifacts/benchmark_current.md)) |
+| Query stress | 40 adversarial retrieval-only cases | `95.0% Hit@k`, `95.0% exact support` (source: [`benchmark_current.md`](./tests/artifacts/benchmark_current.md)) |
+| Deduplication | 32 cases (semi-semantic) | `0` false merges; `100.0%` overall at threshold `0.97` (source: [`benchmark_current.json`](./tests/artifacts/benchmark_current.json)) |
 | Automated tests | Infrastructure & logic | `91 passed` (source: [`pytest_test_benchmark_harness.txt`](./tests/artifacts/verification/2026-04-18-readme-claims/pytest_test_benchmark_harness.txt)) |
 
-**Deduplication note:** Zero false-positive merges is the safety invariant. The 77.3% overall accuracy is intentionally conservative — the system prefers a missed merge over a wrong merge. Improving recall without introducing false positives is the active work for 0.1.8.
+**Deduplication note:** Zero false-positive merges is the safety invariant. The current fixture adds paraphrase-heavy true duplicates, temporal near-duplicates, and cross-topic false friends; the saved run maintains `false_positives = 0`.
 
 Detailed artifacts and methodology: **[Benchmark Methodology](./docs/benchmark-methodology.md)** · [tests/artifacts/README.md](./tests/artifacts/README.md)
 
@@ -460,7 +460,7 @@ Detailed artifacts and methodology: **[Benchmark Methodology](./docs/benchmark-m
 - **Best on structured recall, weaker on answer synthesis**: Waggle is strongest at "retrieve the right facts and relationships" — not at emitting a single benchmark-formatted final answer from memory.
 - **Edges are load-bearing**: `observe_conversation` and `decompose_and_store` create them automatically. Raw `store_node` calls without follow-up edges produce disconnected nodes with no traversal value.
 - **Graph retrieval trades tokens for reasoning context**: factual lookups are often cheaper than chunked RAG; graph-expansion queries intentionally spend more tokens to carry update chains and contradictions.
-- **Deduplication recall is conservative (77.3%)**: zero false-positive merges is maintained, but recall will improve in 0.1.8.
+- **Deduplication is fixture-backed, not universal semantic equivalence**: the current 32-case fixture covers common memory-node paraphrases and false friends, but broader production text can still require additional aliases or stricter domain guards.
 
 For operational details, scaling considerations, tool-level behavior, and the full MCP feature surface, see [docs/reference.md](./docs/reference.md).
 

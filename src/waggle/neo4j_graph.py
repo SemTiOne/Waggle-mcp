@@ -17,7 +17,13 @@ from waggle.evidence import build_observation_evidence, merge_evidence_records, 
 from waggle.errors import AuthenticationError, ValidationFailure
 from waggle.intelligence import (
     compatible_node_types,
+    canonical_concept_overlap,
+    contains_conflicting_months,
+    contains_conflicting_numbers,
+    describes_rejected_or_limited_option,
+    content_token_jaccard,
     detect_conflict_reason,
+    extract_choice_entity,
     extract_conversation_candidates,
     infer_label,
     infer_node_type,
@@ -27,12 +33,14 @@ from waggle.intelligence import (
     label_similarity,
     lexical_overlap,
     normalize_text,
+    paraphrase_dedup_score,
     parse_since_value,
     score_node,
     split_atomic_items,
     summarize_topic,
     temporal_score_adjustment,
     tokenize_text,
+    type_aware_dedup_threshold,
     within_time_window,
 )
 from waggle.markdown_vault import (
@@ -2180,6 +2188,10 @@ class Neo4jMemoryGraph:
     ) -> tuple[Node, str, float | None] | None:
         normalized_label = normalize_text(node.label)
         normalized_content = normalize_text(node.content)
+        type_threshold = type_aware_dedup_threshold(
+            node.node_type,
+            default=self.dedup_similarity_threshold,
+        )
         best_match: tuple[Node, float] | None = None
 
         for existing_node in existing_nodes:
@@ -2194,8 +2206,32 @@ class Neo4jMemoryGraph:
                 continue
             existing_label = normalize_text(existing_node.label)
             existing_content = normalize_text(existing_node.content)
+
+            node_entity = extract_choice_entity(node.content)
+            existing_entity = extract_choice_entity(existing_node.content)
+            if (
+                node_entity is not None
+                and existing_entity is not None
+                and node_entity[1] == existing_entity[1]
+                and node_entity[0] != existing_entity[0]
+                and not describes_rejected_or_limited_option(node.content)
+                and not describes_rejected_or_limited_option(existing_node.content)
+            ):
+                continue
+            if contains_conflicting_numbers(node.content, existing_node.content) and (
+                node_entity is None
+                or existing_entity is None
+                or node_entity[0] == existing_entity[0]
+            ):
+                continue
+            if contains_conflicting_months(node.content, existing_node.content):
+                continue
+
             if normalized_content == existing_content:
                 return existing_node, "exact_content", 1.0
+            if len(normalized_content) >= 10 and len(existing_content) >= 10:
+                if normalized_content in existing_content or existing_content in normalized_content:
+                    return existing_node, "content_substring", 0.98
 
             existing_embedding = self.embedding_model.embed(existing_node.content)
             similarity = self.embedding_model.cosine_similarity(embedding, existing_embedding)
@@ -2207,6 +2243,38 @@ class Neo4jMemoryGraph:
                 return existing_node, "acronym_entity_match", similarity
             if label_score >= 0.92 and similarity >= max(self.dedup_same_label_threshold - 0.2, 0.6):
                 return existing_node, "label_entity_match", similarity
+            if (
+                node_entity is not None
+                and existing_entity is not None
+                and node_entity[0] == existing_entity[0]
+                and similarity >= 0.60
+            ):
+                return existing_node, "same_entity_merge", similarity
+
+            jaccard = content_token_jaccard(node.content, existing_node.content)
+            boosted_threshold = max(type_threshold - 0.05, 0.70)
+            if jaccard >= 0.35 and similarity >= boosted_threshold:
+                return existing_node, "jaccard_boosted_similarity", similarity
+            if node_entity is None and existing_entity is None:
+                paraphrase_score = paraphrase_dedup_score(
+                    semantic_similarity=similarity,
+                    lexical_overlap=jaccard,
+                )
+                paraphrase_threshold = max(type_threshold - 0.10, 0.72)
+                if paraphrase_score >= paraphrase_threshold:
+                    return existing_node, "entityless_paraphrase", paraphrase_score
+
+            concept_overlap = canonical_concept_overlap(node.content, existing_node.content)
+            if (
+                node_entity is not None
+                and existing_entity is not None
+                and node_entity[0] == existing_entity[0]
+                and concept_overlap >= 0.30
+            ):
+                return existing_node, "same_entity_concept_overlap", concept_overlap
+            if concept_overlap >= 0.50 and similarity >= 0.35:
+                return existing_node, "canonical_concept_overlap", concept_overlap
+
             if similarity >= self.dedup_similarity_threshold:
                 if best_match is None or similarity > best_match[1]:
                     best_match = (existing_node, similarity)

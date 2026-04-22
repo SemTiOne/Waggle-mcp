@@ -33,8 +33,8 @@ If you want a slimmer repo in the future, the recommended split is:
 |------|----------|
 | `benchmarks/fixtures/extraction_cases.json` | 25 dialogue pairs for extraction accuracy |
 | `benchmarks/fixtures/retrieval_cases.json` | 18 nodes + 18 queries (6 easy, 12 adversarial) |
-| `benchmarks/fixtures/dedup_cases.json` | 22 node pairs (11 true-dup, 11 false-friend) |
-| `benchmarks/fixtures/comparative_eval.json` | 27 multi-session scenarios, 66 retrieval queries |
+| `benchmarks/fixtures/dedup_cases.json` | 32 node pairs (16 true-dup, 16 false-friend) |
+| `benchmarks/fixtures/comparative_eval.json` | 32 multi-session scenarios, 120 retrieval queries |
 | `tests/artifacts/verification/2026-04-18-readme-claims/README.md` | Dated verification snapshot for README benchmark claims |
 | `tests/artifacts/verification/2026-04-20-performance-snapshot/performance_snapshot.md` | Dated local operation latency snapshot used by README performance table |
 | `tests/artifacts/context_handoff_dogfood.md` | Example query-mode handoff bundle for the Waggle project |
@@ -64,24 +64,24 @@ Corpus: 18 nodes, 18 queries — 6 easy, 12 adversarial.
 
 ### Comparative graph eval (Waggle vs RAG)
 
-Corpus: 27 multi-session scenarios, 66 retrieval queries across 7 task families.
+Corpus: 32 multi-session scenarios, 120 retrieval queries across 9 task families.
 
 Methodology note: the comparative run now ingests fixture sessions through Waggle's observation path, adds explicit support/update/contradiction edges from the corpus, and uses a mixed query policy. Flat retrieval (`max_depth=0`) is used for factual and temporal prompts; graph traversal (`max_depth=1..2`) is used for change-tracking, synthesis, delta, and paraphrase prompts.
 
-Token framing note: the old "~4x fewer tokens" line no longer applies to the blended comparative mean. The current saved run is about `2.7x` lower-token overall (`56.3` vs `150.2`). The stronger `~4x` framing is still directionally true for the simpler flat-retrieval slice, but graph-mode queries intentionally spend more context to carry reasoning chains.
+Token framing note: the old "~4x fewer tokens" line no longer applies to the blended comparative mean. The current saved run is about `2.6x` lower-token overall (`63.0` vs `161.8`). The stronger `~4x` framing is still directionally true for the simpler flat-retrieval slice, but graph-mode queries intentionally spend more context to carry reasoning chains.
 
 | System | Mean tokens | Median | p95 | Hit@k | Exact support |
 |--------|-------------|--------|-----|-------|---------------|
-| **waggle** | **56.3** | **42.0** | **109.0** | 88% | 79% |
-| rag_naive | 150.2 | 149.0 | 161.0 | 100% | 98% |
-| rag_tuned | 242.7 | 242.5 | 259.8 | 100% | 100% |
+| **waggle** | **63.0** | **49.0** | **121.0** | 91% | 88% |
+| rag_naive | 161.8 | 159.0 | 184.1 | 94% | 91% |
+| rag_tuned | 259.6 | 259.0 | 289.2 | 95% | 93% |
 
 #### Waggle mode breakdown
 
 | Mode | Cases | Max depth | Hit@k | Exact support |
 |------|-------|-----------|-------|---------------|
-| flat | 39 | 0 | 85% | 85% |
-| graph | 27 | 1, 2 | 93% | 70% |
+| flat | 78 | 0 | 87% | 87% |
+| graph | 42 | 1, 2 | 98% | 88% |
 
 Interpretation note: the graph slice has better Hit@k than the flat slice, but lower exact support. In practice that often means Waggle found the gold node and bundled extra typed context around it. Treat graph-mode exact-support misses as "inspect bundle quality" rather than automatically as retrieval failure.
 
@@ -89,29 +89,31 @@ Interpretation note: the graph slice has better Hit@k than the flat slice, but l
 
 | Task family | n | Waggle hit@k | RAG hit@k | Notes |
 |-------------|---|-------------|----------|-------|
-| `factual_recall` | 18 | 89% | 100% | Flat retrieval still trails RAG, but the graph-ingested build recovers most simple recalls |
-| `temporal_original` | 19 | 89% | 100% | Original-state ranking still drops a few earliest facts |
-| `multi_session_change` | 11 | 100% | 100% | Graph traversal now recovers every before/after pair in this slice |
-| `cross_scenario_synthesis` | 8 | 88% | 100% | Hit@k is solid, but exact support stays low on multi-fact synthesis; still a known limitation for loosely linked scenarios |
-| `decision_delta` | 4 | 100% | 100% | Graph traversal reliably recovers before+after pairs |
-| `adversarial_paraphrase` | 4 | 75% | 100% | Graph traversal materially improves indirect change queries, but one paraphrase case still misses |
-| `temporal_latest` | 2 | 0% | 100% | Small sample, but both latest queries currently miss in Waggle |
+| `factual_recall` | 18 | 83% | 100% | Flat retrieval still trails RAG, but the graph-ingested build recovers most simple recalls |
+| `temporal_original` | 20 | 95% | 100% | Topic-gated temporal ranking recovers original-state queries in the hardened corpus, but one original-state case still slips |
+| `multi_session_change` | 14 | 100% | 100% | Hit@k is strong; exact support drops only on the hardest three-part bundles |
+| `cross_scenario_synthesis` | 15 | 100% | 100% | Clause-aware multi-intent seeding plus clause-coverage selection lifts exact support to 80% on multi-fact synthesis bundles |
+| `decision_delta` | 7 | 100% | 100% | Graph traversal reliably recovers before+after pairs |
+| `adversarial_paraphrase` | 6 | 83% | 100% | Indirect single-fact queries still need stronger paraphrase ranking |
+| `temporal_latest` | 9 | 78% | 100% | Topic-gated temporal ranking fixes the global-recency failure for most latest-state queries |
+| `negation` | 18 | 83% | 83% | Negation-aware ranking recovers rejected/forbidden facts without widening bundles |
+| `implicit_reference` | 13 | 92% | 69% | Alias expansion plus tag-aware lexical scoring closes most of the vague-reference gap without widening bundles |
 
 ### Deduplication
 
-Corpus: 22 pairs (11 true-dup, 11 false-friend). Best threshold sweep:
+Corpus: 32 pairs (16 true-dup, 16 false-friend). Best threshold sweep:
 
 | Threshold | Result |
 |-----------|--------|
-| 0.82 | **17/22 = 77%** |
-| 0.85 | 16/22 = 73% |
-| 0.88 | 16/22 = 73% |
-| 0.90 | 16/22 = 73% |
-| 0.92 | 16/22 = 73% |
-| 0.95 | 16/22 = 73% |
-| 0.97 | 16/22 = 73% |
+| 0.82 | 32/32 = 100% |
+| 0.85 | 32/32 = 100% |
+| 0.88 | 32/32 = 100% |
+| 0.90 | 32/32 = 100% |
+| 0.92 | 32/32 = 100% |
+| 0.95 | 32/32 = 100% |
+| 0.97 | **32/32 = 100%** |
 
-Root cause: the current corpus includes more paraphrase-heavy true positives than the earlier saved run, so the threshold sweep now exposes the system's remaining false-negative problem more clearly. The important safety property still holds: `false_positives = 0` at every tested threshold.
+The current corpus includes paraphrase-heavy true positives, cross-type same-topic pairs, temporal near-duplicates, and false friends. The important safety property holds: `false_positives = 0` at every tested threshold.
 
 ---
 

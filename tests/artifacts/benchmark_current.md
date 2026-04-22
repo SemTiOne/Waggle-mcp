@@ -1,26 +1,26 @@
 # Waggle Comparative Evaluation
 
-- Scenarios: 27
-- Queries: 66
-- Task families: adversarial_paraphrase, cross_scenario_synthesis, decision_delta, factual_recall, multi_session_change, temporal_latest, temporal_original
+- Scenarios: 32
+- Queries: 120
+- Task families: adversarial_paraphrase, cross_scenario_synthesis, decision_delta, factual_recall, implicit_reference, multi_session_change, negation, temporal_latest, temporal_original
 
 | System | Hit@k | Exact support | Mean tokens | Median tokens | p95 tokens |
 |--------|-------|---------------|-------------|---------------|------------|
-| waggle | 88% | 79% | 56.3 | 42.0 | 109.0 |
-| rag_naive | 100% | 98% | 150.2 | 149.0 | 161.0 |
-| rag_tuned | 100% | 100% | 242.7 | 242.5 | 259.8 |
+| waggle | 91% | 88% | 63.0 | 49.0 | 121.0 |
+| rag_naive | 94% | 91% | 161.8 | 159.0 | 184.1 |
+| rag_tuned | 95% | 93% | 259.6 | 259.0 | 289.2 |
 
 ## Waggle Query Policy
 
-- `flat`: max_depth=0; families=factual_recall, temporal_latest, temporal_original
-- `graph`: max_depth=1,2; families=adversarial_paraphrase, cross_scenario_synthesis, decision_delta, multi_session_change
+- `flat`: max_depth=0; expand_depth=0; families=factual_recall, temporal_latest, temporal_original
+- `graph`: max_depth=1,2; expand_depth=0; families=adversarial_paraphrase, cross_scenario_synthesis, decision_delta, multi_session_change
 
 ## Waggle Mode Breakdown
 
 | Mode | Cases | Max depth | Hit@k | Exact support |
 |------|-------|-----------|-------|---------------|
-| flat | 39 | 0 | 85% | 85% |
-| graph | 27 | 1, 2 | 93% | 70% |
+| flat | 78 | 0 | 87% | 87% |
+| graph | 42 | 1, 2 | 98% | 88% |
 
 ## Failure Protocol
 
@@ -36,5 +36,5 @@
 
 | System | Hit@k | Exact support | Mean tokens |
 |--------|-------|---------------|-------------|
-| graph_raw | 98% | 98% | 37.0 |
-| graph_hybrid | 98% | 98% | 63.9 |
+| graph_raw | 98% | 98% | 39.7 |
+| graph_hybrid | 100% | 100% | 74.3 |

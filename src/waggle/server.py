@@ -318,6 +318,12 @@ class WaggleServer:
                             "minimum": 0,
                             "description": "Relationship traversal depth around matching nodes.",
                         },
+                        "expand_depth": {
+                            "type": "integer",
+                            "default": 0,
+                            "minimum": 0,
+                            "description": "Optional support expansion depth. At 1, graph mode may return up to twice max_nodes.",
+                        },
                         **_scope_properties(),
                         "retrieval_mode": {
                             "type": "string",
@@ -885,6 +891,7 @@ class WaggleServer:
                         query=arguments["query"],
                         max_nodes=int(arguments.get("max_nodes", 20)),
                         max_depth=int(arguments.get("max_depth", 2)),
+                        expand_depth=int(arguments.get("expand_depth", 0)),
                         agent_id=arguments.get("agent_id", ""),
                         project=arguments.get("project", ""),
                         session_id=arguments.get("session_id", ""),

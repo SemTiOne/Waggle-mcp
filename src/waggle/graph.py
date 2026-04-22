@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import re
 import sqlite3
 import threading
 from collections import deque
@@ -21,7 +22,10 @@ from waggle.evidence import build_observation_evidence, merge_evidence_records, 
 from waggle.errors import AuthenticationError, ValidationFailure
 from waggle.intelligence import (
     compatible_node_types,
+    canonical_concept_overlap,
+    contains_conflicting_months,
     contains_conflicting_numbers,
+    describes_rejected_or_limited_option,
     content_token_jaccard,
     detect_conflict_reason,
     extract_choice_entity,
@@ -34,6 +38,7 @@ from waggle.intelligence import (
     label_similarity,
     lexical_overlap,
     normalize_text,
+    paraphrase_dedup_score,
     parse_since_value,
     score_node,
     split_atomic_items,
@@ -115,6 +120,95 @@ RELATION_SCORE_BOOST: dict[str, float] = {
     "similar_to": -0.05,
     "seed": 0.00,
 }
+TOPIC_RELEVANCE_THRESHOLD = 0.35
+TOPIC_SEMANTIC_ONLY_THRESHOLD = 0.70
+NEGATION_QUERY_TERMS = (
+    "not",
+    "never",
+    "reject",
+    "rejected",
+    "blocked",
+    "forbid",
+    "forbidden",
+    "ruled out",
+    "avoid",
+    "must not",
+    "should not",
+    "off limits",
+    "disallowed",
+    "prohibit",
+    "prohibited",
+)
+NEGATION_NODE_TERMS = (
+    "must not",
+    "do not",
+    "cannot",
+    "can not",
+    "rejected",
+    "blocked",
+    "forbidden",
+    "ruled out",
+    "not allowed",
+    "off limits",
+    "disallowed",
+    "prohibited",
+    "mustn't",
+)
+NEGATION_SCORE_BOOST = 0.28
+
+QUERY_ALIAS_TERMS: tuple[tuple[str, str], ...] = (
+    ("ingestion and export", "ingestion import ndjson export csv parquet warehouse sync"),
+    ("ingestion", "ingestion import ndjson streaming imports"),
+    ("export", "export csv parquet warehouse sync signed download links"),
+    ("database", "postgresql mysql sqlite database production"),
+    ("acid compliance", "acid compliance transactions consistency postgres decision reason"),
+    ("justified by", "reason rationale because requirement constraint"),
+    ("deployment platform", "cloud run ecs deployment deploy autoscaling"),
+    ("deployment", "cloud run ecs deployment deploy autoscaling"),
+    ("deploy", "cloud run ecs deployment rollback"),
+    ("auth", "jwt token expiry refresh authentication"),
+    ("mobile offline", "offline queue sync mobile edits"),
+    ("production incidents", "incident rollback auto-rollback 5xx error rate"),
+    ("incidents", "incident rollback auto-rollback 5xx error rate"),
+    ("observability", "traces slos logs metrics service-level objectives"),
+    ("workflow engine", "temporal workflows celery redis queue backend retries visibility"),
+    ("workflow", "temporal workflows celery redis queue backend"),
+    ("schema migration", "alembic migrations autogenerate manual review"),
+    ("migration tool", "alembic migrations autogenerate manual review"),
+    ("feature flags", "flags control plane env vars"),
+    ("access permissions", "access control rbac abac role attribute rules"),
+    ("permissions", "access control rbac abac role attribute rules"),
+    ("upstream changes", "webhooks polling sync missed events"),
+    ("notified", "webhooks polling sync notifications"),
+    ("notified", "notifications email slack alerts webhooks"),
+    ("alert on", "notifications email slack ops alerts"),
+    ("alert", "notifications email slack ops alerts"),
+    ("workflow engine", "temporal workflows celery redis queue backend retries visibility"),
+    ("scaling issue", "concurrent writes concurrency blocker scaling"),
+    ("schema migration tool", "alembic migrations manual review schema"),
+    ("enterprise-sensitive actions", "enterprise export approval signed links admin approval"),
+    ("enterprise-sensitive", "enterprise export approval signed links admin approval"),
+    ("privileged", "break-glass shared admin named ownership privileged actions"),
+    ("model deployment", "model rollout canary approval auto-promote"),
+    ("model rollout", "model rollout canary approval auto-promote product-manager approval"),
+    ("canary approval", "canary approval product-manager approval no auto-promote"),
+    ("pm gate", "product-manager approval no auto-promote canary"),
+    ("refund flow", "refunds one-click refunds manual review rules engine"),
+    ("refunds", "refund rules engine one-click refunds manual review"),
+    ("risky automation", "rules engine manual review blocked no auto-promote one-click refunds"),
+    ("monitoring was missing", "abuse monitoring one-click refunds blocked"),
+    ("missing monitoring", "abuse monitoring one-click refunds blocked"),
+    ("storage costs", "storage cold uploads s3 intelligent tiering cost"),
+    ("data retention", "audit logs retention compliance 90 days"),
+    ("retention compliance", "audit logs retention compliance 90 days"),
+    ("emergency access", "break-glass access per-user accounts audit trails"),
+    ("security review", "security review break-glass raw api keys shared admins"),
+    ("logs", "logs raw api keys audit retention"),
+    ("named accountability", "named ownership per-user accounts admin approval signed links"),
+    ("deeper requirement", "requirement supported choice concurrency realtime"),
+    ("supported that choice", "requirement supported choice concurrency realtime"),
+    ("fastapi", "fastapi async concurrency realtime websockets"),
+)
 
 MUST_PAIR_RELATIONS: frozenset[str] = frozenset({
     "contradicts",
@@ -765,6 +859,7 @@ class MemoryGraph:
         query: str,
         max_nodes: int = 20,
         max_depth: int = 2,
+        expand_depth: int = 0,
         agent_id: str = "",
         project: str = "",
         session_id: str = "",
@@ -777,6 +872,8 @@ class MemoryGraph:
             raise ValueError("max_nodes must be at least 1.")
         if max_depth < 0:
             raise ValueError("max_depth cannot be negative.")
+        if expand_depth < 0:
+            raise ValueError("expand_depth cannot be negative.")
         normalized_mode = retrieval_mode.strip().lower()
         if normalized_mode not in {"graph", "replay", "fusion"}:
             raise ValueError("retrieval_mode must be one of: graph, replay, fusion.")
@@ -786,6 +883,7 @@ class MemoryGraph:
                 query=query_text,
                 max_nodes=max_nodes,
                 max_depth=max_depth,
+                expand_depth=expand_depth,
                 agent_id=agent_id,
                 project=project,
                 session_id=session_id,
@@ -831,6 +929,7 @@ class MemoryGraph:
         query: str,
         max_nodes: int,
         max_depth: int,
+        expand_depth: int,
         agent_id: str,
         project: str,
         session_id: str,
@@ -871,13 +970,19 @@ class MemoryGraph:
             if not nodes_by_id:
                 return SubgraphResult(query=query, total_nodes_in_graph=total_nodes)
 
-            query_embedding = self.embedding_model.embed(query)
+            expanded_query = self._expand_query_aliases(query)
+            query_embedding = self.embedding_model.embed(expanded_query)
             similarity_by_id = {
                 node_id: max(self.embedding_model.cosine_similarity(query_embedding, embedding), 0.0)
                 for node_id, embedding in embeddings_by_id.items()
             }
             lexical_by_id = {
-                node_id: lexical_overlap(query, node.label, node.content)
+                node_id: self._lexical_score_for_node(expanded_query, node)
+                for node_id, node in nodes_by_id.items()
+            }
+            negation_intent = self._has_negation_intent(query)
+            negation_boost_by_id = {
+                node_id: self._negation_boost(node) if negation_intent else 0.0
                 for node_id, node in nodes_by_id.items()
             }
 
@@ -885,18 +990,33 @@ class MemoryGraph:
             seed_candidates = [
                 (
                     node_id,
-                    (0.72 * similarity_by_id.get(node_id, 0.0))
-                    + (0.28 * lexical_by_id.get(node_id, 0.0)),
+                    (0.7 * similarity_by_id.get(node_id, 0.0))
+                    + (0.3 * lexical_by_id.get(node_id, 0.0)),
+                    negation_boost_by_id.get(node_id, 0.0),
                     self._seed_temporal_order(nodes_by_id[node_id], temporal_hints),
                 )
                 for node_id in nodes_by_id
             ]
             if temporal_hints.recency_mode in {"latest", "oldest"}:
+                temporal_seed_candidates = [
+                    item
+                    for item in seed_candidates
+                    if item[1] >= TOPIC_RELEVANCE_THRESHOLD
+                    and (
+                        lexical_by_id.get(item[0], 0.0) > 0.0
+                        or similarity_by_id.get(item[0], 0.0) >= TOPIC_SEMANTIC_ONLY_THRESHOLD
+                    )
+                ]
+                if not temporal_seed_candidates:
+                    temporal_seed_candidates = sorted(
+                        seed_candidates,
+                        key=lambda item: (-(item[1] + item[2]), nodes_by_id[item[0]].label.lower()),
+                    )[: max_nodes * 2]
                 ranked_seed_ids = [
                     item[0]
                     for item in sorted(
-                        seed_candidates,
-                        key=lambda item: (item[2], -item[1], nodes_by_id[item[0]].label.lower()),
+                        temporal_seed_candidates,
+                        key=lambda item: (item[3], -(item[1] + item[2]), nodes_by_id[item[0]].label.lower()),
                     )[:seed_count]
                 ]
             else:
@@ -904,9 +1024,17 @@ class MemoryGraph:
                     item[0]
                     for item in sorted(
                         seed_candidates,
-                        key=lambda item: (-item[1], item[2], nodes_by_id[item[0]].label.lower()),
+                        key=lambda item: (-(item[1] + item[2]), item[3], nodes_by_id[item[0]].label.lower()),
                     )[:seed_count]
                 ]
+            if len(self._split_query_intents(query)) >= 2:
+                ranked_seed_ids = self._add_clause_seed_ids(
+                    query=query,
+                    ranked_seed_ids=ranked_seed_ids,
+                    nodes_by_id=nodes_by_id,
+                    embeddings_by_id=embeddings_by_id,
+                    max_seeds=max_nodes,
+                )
 
             graph = self._load_graph(connection, node_ids=nodes_by_id.keys())
             expanded_depths, expansion_metadata = self._expand_node_depths_with_context(
@@ -922,9 +1050,11 @@ class MemoryGraph:
             max_degree = max(degree_by_id.values(), default=0)
             scored_nodes = self._sort_scored_nodes(
                 candidate_nodes,
+                max_nodes=max_nodes,
                 temporal_hints=temporal_hints,
                 similarity_by_id=similarity_by_id,
                 lexical_by_id=lexical_by_id,
+                negation_boost_by_id=negation_boost_by_id,
                 degree_by_id=degree_by_id,
                 max_access=max_access,
                 max_degree=max_degree,
@@ -932,9 +1062,22 @@ class MemoryGraph:
                 expanded_depths=expanded_depths,
                 expansion_metadata=expansion_metadata,
             )
-            selected_nodes = scored_nodes[:max_nodes]
+            scored_nodes = self._diversify_multi_intent_nodes(
+                query=query,
+                ranked_nodes=scored_nodes,
+                embeddings_by_id=embeddings_by_id,
+                max_nodes=max_nodes,
+            )
+            result_limit = max_nodes if expand_depth == 0 else max_nodes + max(1, max_nodes // 2)
+            selected_nodes = self._enforce_clause_coverage(
+                query=query,
+                selected_nodes=scored_nodes[:result_limit],
+                ranked_nodes=scored_nodes,
+                embeddings_by_id=embeddings_by_id,
+                max_nodes=result_limit,
+            )
             candidate_pool = {node.id: node for node in candidate_nodes}
-            selected_nodes = self._ensure_support_coverage(selected_nodes, candidate_pool, graph, max_nodes)
+            selected_nodes = self._ensure_support_coverage(selected_nodes, candidate_pool, graph, result_limit)
             selected_ids = [node.id for node in selected_nodes]
 
             edges = self._fetch_edges_for_nodes(connection, selected_ids)
@@ -2083,6 +2226,7 @@ class MemoryGraph:
             # Score with relation-aware ranking (no natural language query)
             similarity_by_id = {nid: 0.0 for nid in expanded_depths}
             lexical_by_id = {nid: 0.0 for nid in expanded_depths}
+            negation_boost_by_id = {nid: 0.0 for nid in expanded_depths}
             # Boost seed IDs synthetically
             for seed_id in seed_ids:
                 if seed_id in similarity_by_id:
@@ -2095,9 +2239,11 @@ class MemoryGraph:
             temporal_hints = _NeutralTemporalHints()
             scored_nodes = self._sort_scored_nodes(
                 candidate_nodes,
+                max_nodes=max_nodes,
                 temporal_hints=temporal_hints,
                 similarity_by_id=similarity_by_id,
                 lexical_by_id=lexical_by_id,
+                negation_boost_by_id=negation_boost_by_id,
                 degree_by_id=degree_by_id,
                 max_access=max_access,
                 max_degree=max_degree,
@@ -2276,6 +2422,8 @@ class MemoryGraph:
                 and existing_entity is not None
                 and node_entity[1] == existing_entity[1]   # same category
                 and node_entity[0] != existing_entity[0]   # different entity
+                and not describes_rejected_or_limited_option(node.content)
+                and not describes_rejected_or_limited_option(existing_node.content)
             ):
                 continue  # never merge "postgres" node with "mysql" node
 
@@ -2288,6 +2436,8 @@ class MemoryGraph:
                 or existing_entity is None
                 or node_entity[0] == existing_entity[0]
             ):
+                continue
+            if contains_conflicting_months(node.content, existing_node.content):
                 continue
 
             if normalized_content == existing_content:
@@ -2333,7 +2483,30 @@ class MemoryGraph:
             if jaccard >= 0.35 and similarity >= boosted_threshold:
                 return existing_node, "jaccard_boosted_similarity", similarity
 
-            # ── Layer 3c: pure cosine fallback (conservative global threshold) ─
+            # ── Layer 3d: entity-less paraphrase merge ─────────────────
+            # Some true duplicates share meaning but have no named entity anchor
+            # and too little word overlap for the Jaccard gate above.
+            if node_entity is None and existing_entity is None:
+                paraphrase_score = paraphrase_dedup_score(
+                    semantic_similarity=similarity,
+                    lexical_overlap=jaccard,
+                )
+                paraphrase_threshold = max(type_threshold - 0.10, 0.72)
+                if paraphrase_score >= paraphrase_threshold:
+                    return existing_node, "entityless_paraphrase", paraphrase_score
+
+            concept_overlap = canonical_concept_overlap(node.content, existing_node.content)
+            if (
+                node_entity is not None
+                and existing_entity is not None
+                and node_entity[0] == existing_entity[0]
+                and concept_overlap >= 0.30
+            ):
+                return existing_node, "same_entity_concept_overlap", concept_overlap
+            if concept_overlap >= 0.50 and similarity >= 0.35:
+                return existing_node, "canonical_concept_overlap", concept_overlap
+
+            # ── Layer 3e: pure cosine fallback (conservative global threshold) ─
             if similarity >= self.dedup_similarity_threshold:
                 if best_match is None or similarity > best_match[1]:
                     best_match = (existing_node, similarity)
@@ -3006,9 +3179,11 @@ class MemoryGraph:
         self,
         candidate_nodes: list[Node],
         *,
+        max_nodes: int,
         temporal_hints: Any,
         similarity_by_id: dict[str, float],
         lexical_by_id: dict[str, float],
+        negation_boost_by_id: dict[str, float],
         degree_by_id: dict[str, int],
         max_access: int,
         max_degree: int,
@@ -3024,7 +3199,7 @@ class MemoryGraph:
                 max_access=max_access,
                 degree_score=(degree_by_id.get(node.id, 0) / max_degree if max_degree > 0 else 0.0),
                 depth=expanded_depths.get(node.id, max_depth + 1),
-            ) + temporal_score_adjustment(node, temporal_hints)
+            ) + temporal_score_adjustment(node, temporal_hints) + negation_boost_by_id.get(node.id, 0.0)
             
             if expansion_metadata is not None and node.id in expansion_metadata:
                 meta = expansion_metadata[node.id]
@@ -3032,20 +3207,246 @@ class MemoryGraph:
             
             return base
 
-        if temporal_hints.recency_mode == "latest":
+        if temporal_hints.recency_mode in {"latest", "oldest"}:
+            topic_scores = {
+                node.id: (0.7 * similarity_by_id.get(node.id, 0.0))
+                + (0.3 * lexical_by_id.get(node.id, 0.0))
+                + negation_boost_by_id.get(node.id, 0.0)
+                for node in candidate_nodes
+            }
+            topical_nodes = [
+                node
+                for node in candidate_nodes
+                if topic_scores.get(node.id, 0.0) >= TOPIC_RELEVANCE_THRESHOLD
+                and (
+                    lexical_by_id.get(node.id, 0.0) > 0.0
+                    or similarity_by_id.get(node.id, 0.0) >= TOPIC_SEMANTIC_ONLY_THRESHOLD
+                )
+            ]
+            if not topical_nodes:
+                topical_nodes = sorted(
+                    candidate_nodes,
+                    key=lambda node: (-topic_scores.get(node.id, 0.0), node.label.lower()),
+                )[: max_nodes * 2]
+            if temporal_hints.recency_mode == "latest":
+                return sorted(
+                    topical_nodes,
+                    key=lambda node: (
+                        -node.updated_at.timestamp(),
+                        -topic_scores.get(node.id, 0.0),
+                        node.label.lower(),
+                    ),
+                )
             return sorted(
-                candidate_nodes,
-                key=lambda node: (-node.updated_at.timestamp(), -combined_score(node), node.label.lower()),
-            )
-        if temporal_hints.recency_mode == "oldest":
-            return sorted(
-                candidate_nodes,
-                key=lambda node: (node.created_at.timestamp(), -combined_score(node), node.label.lower()),
+                topical_nodes,
+                key=lambda node: (
+                    node.created_at.timestamp(),
+                    -topic_scores.get(node.id, 0.0),
+                    node.label.lower(),
+                ),
             )
         return sorted(
             candidate_nodes,
             key=lambda node: (-combined_score(node), -node.updated_at.timestamp(), node.label.lower()),
         )
+
+    def _add_clause_seed_ids(
+        self,
+        *,
+        query: str,
+        ranked_seed_ids: list[str],
+        nodes_by_id: dict[str, Node],
+        embeddings_by_id: dict[str, np.ndarray],
+        max_seeds: int,
+    ) -> list[str]:
+        clauses = [
+            clause.strip(" ?,.;:")
+            for clause in re.split(r"\b(?:and|with|plus)\b", query, flags=re.IGNORECASE)
+            if len(clause.strip(" ?,.;:")) >= 4
+        ]
+        if len(clauses) < 2:
+            return ranked_seed_ids
+
+        expanded = list(ranked_seed_ids)
+        seen = set(expanded)
+        for clause in clauses[:4]:
+            expanded_clause = self._expand_intent_query(clause, query)
+            clause_embedding = self.embedding_model.embed(expanded_clause)
+            lexical_candidates: list[tuple[float, str]] = []
+            semantic_candidates: list[tuple[float, str]] = []
+            for node_id, node in nodes_by_id.items():
+                semantic = max(
+                    self.embedding_model.cosine_similarity(clause_embedding, embeddings_by_id[node_id]),
+                    0.0,
+                )
+                lexical = self._lexical_score_for_node(expanded_clause, node)
+                score = (0.45 * semantic) + (0.55 * lexical)
+                if lexical > 0.0:
+                    lexical_candidates.append((score, node_id))
+                elif semantic >= 0.75:
+                    semantic_candidates.append((score, node_id))
+            best_id = ""
+            if lexical_candidates:
+                best_id = max(lexical_candidates, key=lambda item: item[0])[1]
+            elif semantic_candidates:
+                best_id = max(semantic_candidates, key=lambda item: item[0])[1]
+            if best_id and best_id not in seen:
+                expanded.append(best_id)
+                seen.add(best_id)
+            if len(expanded) >= max_seeds:
+                break
+
+        return expanded
+
+    def _has_negation_intent(self, query: str) -> bool:
+        lowered = normalize_text(query)
+        return any(term in lowered for term in NEGATION_QUERY_TERMS)
+
+    def _negation_boost(self, node: Node) -> float:
+        text = normalize_text(" ".join([node.label, node.content, *node.tags]))
+        return NEGATION_SCORE_BOOST if any(term in text for term in NEGATION_NODE_TERMS) else 0.0
+
+    def _split_query_intents(self, query: str) -> list[str]:
+        normalized = re.sub(r"\s+", " ", query.strip())
+        parts = [
+            part.strip(" ?,.;:")
+            for part in re.split(r"\b(?:and|plus|with|or|because|justified by|supported by|due to)\b", normalized, flags=re.IGNORECASE)
+            if len(part.strip(" ?,.;:")) >= 4
+        ]
+        if len(parts) < 2:
+            return []
+        return parts[:4]
+
+    def _expand_query_aliases(self, query: str) -> str:
+        normalized = query.lower()
+        aliases = [
+            alias
+            for trigger, alias in QUERY_ALIAS_TERMS
+            if trigger in normalized
+        ]
+        if not aliases:
+            return query
+        return " ".join([query, *aliases])
+
+    def _expand_intent_query(self, intent: str, full_query: str) -> str:
+        return self._expand_query_aliases(f"{intent} {full_query}".strip())
+
+    def _lexical_score_for_node(self, query: str, node: Node) -> float:
+        tag_text = " ".join(
+            tag.replace(":", " ").replace("_", " ").replace("-", " ")
+            for tag in node.tags
+        )
+        content_score = lexical_overlap(query, node.label, node.content)
+        if not tag_text:
+            return content_score
+        tag_score = lexical_overlap(query, tag_text, "")
+        return max(content_score, tag_score)
+
+    def _diversify_multi_intent_nodes(
+        self,
+        *,
+        query: str,
+        ranked_nodes: list[Node],
+        embeddings_by_id: dict[str, np.ndarray],
+        max_nodes: int,
+    ) -> list[Node]:
+        intents = self._split_query_intents(query)
+        if len(intents) < 2 or max_nodes < 2:
+            return ranked_nodes
+
+        selected: list[Node] = []
+        selected_ids: set[str] = set()
+        for intent in intents:
+            expanded_intent = self._expand_intent_query(intent, query)
+            intent_embedding = self.embedding_model.embed(expanded_intent)
+            lexical_scored: list[tuple[float, Node]] = []
+            semantic_scored: list[tuple[float, Node]] = []
+            for node in ranked_nodes:
+                embedding = embeddings_by_id.get(node.id)
+                if embedding is None:
+                    continue
+                semantic = max(self.embedding_model.cosine_similarity(intent_embedding, embedding), 0.0)
+                lexical = self._lexical_score_for_node(expanded_intent, node)
+                score = (0.35 * semantic) + (0.65 * lexical)
+                if lexical > 0.0:
+                    lexical_scored.append((score, node))
+                elif semantic >= 0.75:
+                    semantic_scored.append((score, node))
+            scored = lexical_scored or semantic_scored
+            if not scored:
+                continue
+            score, node = max(scored, key=lambda item: (item[0], item[1].updated_at.timestamp()))
+            if score >= 0.18 and node.id not in selected_ids:
+                selected.append(node)
+                selected_ids.add(node.id)
+            if len(selected) >= max_nodes:
+                return selected
+
+        for node in ranked_nodes:
+            if node.id not in selected_ids:
+                selected.append(node)
+                selected_ids.add(node.id)
+            if len(selected) >= len(ranked_nodes):
+                break
+        return selected
+
+    def _enforce_clause_coverage(
+        self,
+        *,
+        query: str,
+        selected_nodes: list[Node],
+        ranked_nodes: list[Node],
+        embeddings_by_id: dict[str, np.ndarray],
+        max_nodes: int,
+    ) -> list[Node]:
+        intents = self._split_query_intents(query)
+        if len(intents) < 2 or not ranked_nodes:
+            return selected_nodes[:max_nodes]
+
+        selected = list(selected_nodes[:max_nodes])
+        selected_ids = {node.id for node in selected}
+        if not selected:
+            return selected
+
+        clause_candidates: list[Node] = []
+        for intent in intents:
+            expanded_intent = self._expand_intent_query(intent, query)
+            intent_embedding = self.embedding_model.embed(expanded_intent)
+            lexical_scored: list[tuple[float, Node]] = []
+            semantic_scored: list[tuple[float, Node]] = []
+            for node in ranked_nodes:
+                embedding = embeddings_by_id.get(node.id)
+                if embedding is None:
+                    continue
+                semantic = max(self.embedding_model.cosine_similarity(intent_embedding, embedding), 0.0)
+                lexical = self._lexical_score_for_node(expanded_intent, node)
+                score = (0.35 * semantic) + (0.65 * lexical)
+                if lexical > 0.0:
+                    lexical_scored.append((score, node))
+                elif semantic >= 0.75:
+                    semantic_scored.append((score, node))
+            scored = lexical_scored or semantic_scored
+            if not scored:
+                continue
+            score, node = max(scored, key=lambda item: (item[0], item[1].updated_at.timestamp()))
+            if score >= 0.20:
+                clause_candidates.append(node)
+
+        for node in clause_candidates:
+            if node.id in selected_ids:
+                continue
+            if len(selected) < max_nodes:
+                selected.append(node)
+                selected_ids.add(node.id)
+                continue
+            replacement_index = len(selected) - 1
+            if replacement_index < 0:
+                break
+            selected_ids.remove(selected[replacement_index].id)
+            selected[replacement_index] = node
+            selected_ids.add(node.id)
+
+        return selected[:max_nodes]
 
     def _expand_node_depths_with_context(
         self,

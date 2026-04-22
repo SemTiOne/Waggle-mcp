@@ -377,7 +377,7 @@ Deduplication in Waggle is intentionally conservative to prevent false merges of
 
 1. **Exact Content**: Case-insensitive, whitespace-normalized equality check.
 2. **Same-Label High-Similarity**: If labels are identical or acronym matches, a lower similarity threshold (`0.90` default) is used.
-3. **Semantic Similarity**: General node-to-node comparison using cosine similarity. Default threshold is `0.82` to ensure zero false positives across our 22-case fixture.
+3. **Semantic Similarity**: General node-to-node comparison using cosine similarity. The global default threshold is `0.97`, with type-aware and canonical-concept gates for safer paraphrase merges. The current 32-case fixture maintains zero false positives across the threshold sweep.
 
 The system prefers creating "Derived From" or "Updates" edges over destructive merging when similarity is ambiguous.
 

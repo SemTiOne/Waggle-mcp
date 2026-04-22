@@ -1408,6 +1408,369 @@
           }
         }
       ]
+    },
+    {
+      "id": "security_review_actions",
+      "title": "Security review follow-ups",
+      "sessions": [
+        {
+          "id": "security_review_actions_s1",
+          "timestamp": "2026-01-18T09:20:00+00:00",
+          "transcript": "User: During the security review, we decided not to store raw API keys in application logs. Agent: Recorded, raw API keys must not be logged.",
+          "support_fact_ids": [
+            "sec_no_raw_api_keys"
+          ]
+        },
+        {
+          "id": "security_review_actions_s2",
+          "timestamp": "2026-02-22T13:00:00+00:00",
+          "transcript": "User: The review also rejected shared admin accounts; every privileged action needs named ownership. Agent: Noted, shared admin accounts are rejected.",
+          "support_fact_ids": [
+            "sec_no_shared_admins"
+          ]
+        },
+        {
+          "id": "security_review_actions_s3",
+          "timestamp": "2026-04-18T16:35:00+00:00",
+          "transcript": "User: For that security review item, we landed per-user break-glass accounts with audit trails. Agent: Updated, break-glass access is per-user and audited.",
+          "support_fact_ids": [
+            "sec_breakglass_audited"
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "sec_no_raw_api_keys",
+          "label": "No raw API key logs",
+          "content": "Raw API keys must not be stored in application logs.",
+          "node_type": "decision",
+          "timestamp": "2026-01-18T09:20:00+00:00"
+        },
+        {
+          "id": "sec_no_shared_admins",
+          "label": "Shared admins rejected",
+          "content": "Shared admin accounts were rejected because privileged actions need named ownership.",
+          "node_type": "decision",
+          "timestamp": "2026-02-22T13:00:00+00:00"
+        },
+        {
+          "id": "sec_breakglass_audited",
+          "label": "Audited break-glass access",
+          "content": "Break-glass access now uses per-user accounts with audit trails.",
+          "node_type": "decision",
+          "timestamp": "2026-04-18T16:35:00+00:00"
+        }
+      ],
+      "relations": [
+        {
+          "source_fact_id": "sec_breakglass_audited",
+          "target_fact_id": "sec_no_shared_admins",
+          "relationship": "derived_from",
+          "metadata": {
+            "origin": "comparative-support"
+          }
+        },
+        {
+          "source_fact_id": "sec_breakglass_audited",
+          "target_fact_id": "sec_no_raw_api_keys",
+          "relationship": "relates_to",
+          "metadata": {
+            "origin": "comparative-security-review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "payment_risk_controls",
+      "title": "Payment risk controls",
+      "sessions": [
+        {
+          "id": "payment_risk_controls_s1",
+          "timestamp": "2026-02-02T10:10:00+00:00",
+          "transcript": "User: Do not enable one-click refunds until abuse monitoring is in place. Agent: Captured, one-click refunds are blocked until abuse monitoring exists.",
+          "support_fact_ids": [
+            "risk_no_one_click_refunds"
+          ]
+        },
+        {
+          "id": "payment_risk_controls_s2",
+          "timestamp": "2026-03-09T11:25:00+00:00",
+          "transcript": "User: For risk checks, start with manual review on high-value refunds. Agent: Noted, high-value refunds require manual review.",
+          "support_fact_ids": [
+            "risk_manual_high_value_refunds"
+          ]
+        },
+        {
+          "id": "payment_risk_controls_s3",
+          "timestamp": "2026-04-20T09:05:00+00:00",
+          "transcript": "User: Now route high-risk refunds through the rules engine and keep manual review as fallback. Agent: Updated, high-risk refunds use the rules engine with manual fallback.",
+          "support_fact_ids": [
+            "risk_rules_engine_refunds"
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "risk_no_one_click_refunds",
+          "label": "One-click refunds blocked",
+          "content": "One-click refunds must not be enabled until abuse monitoring is in place.",
+          "node_type": "decision",
+          "timestamp": "2026-02-02T10:10:00+00:00"
+        },
+        {
+          "id": "risk_manual_high_value_refunds",
+          "label": "Manual refund review",
+          "content": "High-value refunds initially required manual review.",
+          "node_type": "decision",
+          "timestamp": "2026-03-09T11:25:00+00:00"
+        },
+        {
+          "id": "risk_rules_engine_refunds",
+          "label": "Rules engine refund checks",
+          "content": "High-risk refunds now go through the rules engine with manual review as fallback.",
+          "node_type": "decision",
+          "timestamp": "2026-04-20T09:05:00+00:00"
+        }
+      ],
+      "relations": [
+        {
+          "source_fact_id": "risk_rules_engine_refunds",
+          "target_fact_id": "risk_manual_high_value_refunds",
+          "relationship": "updates",
+          "metadata": {
+            "origin": "comparative-temporal"
+          }
+        },
+        {
+          "source_fact_id": "risk_rules_engine_refunds",
+          "target_fact_id": "risk_no_one_click_refunds",
+          "relationship": "depends_on",
+          "metadata": {
+            "origin": "comparative-risk"
+          }
+        }
+      ]
+    },
+    {
+      "id": "privacy_exports",
+      "title": "Privacy export policy",
+      "sessions": [
+        {
+          "id": "privacy_exports_s1",
+          "timestamp": "2026-01-26T08:50:00+00:00",
+          "transcript": "User: We cannot email full data exports directly to users. Agent: Recorded, full data exports must not be sent over email.",
+          "support_fact_ids": [
+            "privacy_no_email_exports"
+          ]
+        },
+        {
+          "id": "privacy_exports_s2",
+          "timestamp": "2026-03-28T15:45:00+00:00",
+          "transcript": "User: Data exports should be delivered through signed download links that expire after 24 hours. Agent: Saved, exports use 24-hour signed links.",
+          "support_fact_ids": [
+            "privacy_signed_export_links"
+          ]
+        },
+        {
+          "id": "privacy_exports_s3",
+          "timestamp": "2026-04-21T10:15:00+00:00",
+          "transcript": "User: The latest privacy-export stance is signed links plus admin approval for enterprise tenants. Agent: Updated, enterprise exports require admin approval and signed links.",
+          "support_fact_ids": [
+            "privacy_enterprise_approval"
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "privacy_no_email_exports",
+          "label": "No emailed full exports",
+          "content": "Full data exports must not be emailed directly to users.",
+          "node_type": "decision",
+          "timestamp": "2026-01-26T08:50:00+00:00"
+        },
+        {
+          "id": "privacy_signed_export_links",
+          "label": "Signed export links",
+          "content": "Data exports are delivered through signed download links that expire after 24 hours.",
+          "node_type": "decision",
+          "timestamp": "2026-03-28T15:45:00+00:00"
+        },
+        {
+          "id": "privacy_enterprise_approval",
+          "label": "Enterprise export approval",
+          "content": "Enterprise data exports now require admin approval and signed download links.",
+          "node_type": "decision",
+          "timestamp": "2026-04-21T10:15:00+00:00"
+        }
+      ],
+      "relations": [
+        {
+          "source_fact_id": "privacy_signed_export_links",
+          "target_fact_id": "privacy_no_email_exports",
+          "relationship": "updates",
+          "metadata": {
+            "origin": "comparative-temporal"
+          }
+        },
+        {
+          "source_fact_id": "privacy_enterprise_approval",
+          "target_fact_id": "privacy_signed_export_links",
+          "relationship": "updates",
+          "metadata": {
+            "origin": "comparative-temporal"
+          }
+        },
+        {
+          "source_fact_id": "privacy_enterprise_approval",
+          "target_fact_id": "privacy_no_email_exports",
+          "relationship": "derived_from",
+          "metadata": {
+            "origin": "comparative-privacy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "model_ops_rollout",
+      "title": "Model operations rollout",
+      "sessions": [
+        {
+          "id": "model_ops_rollout_s1",
+          "timestamp": "2026-02-12T12:30:00+00:00",
+          "transcript": "User: Do not auto-promote evaluation winners to production. Agent: Noted, evaluation winners are not auto-promoted.",
+          "support_fact_ids": [
+            "ml_no_auto_promote"
+          ]
+        },
+        {
+          "id": "model_ops_rollout_s2",
+          "timestamp": "2026-03-18T09:40:00+00:00",
+          "transcript": "User: Model releases require offline eval pass plus a canary window. Agent: Saved, model releases need offline eval and canary validation.",
+          "support_fact_ids": [
+            "ml_eval_canary_required"
+          ]
+        },
+        {
+          "id": "model_ops_rollout_s3",
+          "timestamp": "2026-04-19T14:30:00+00:00",
+          "transcript": "User: Latest model rollout gate adds product-manager approval after the canary. Agent: Updated, PM approval follows canary before full model rollout.",
+          "support_fact_ids": [
+            "ml_pm_approval_gate"
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "ml_no_auto_promote",
+          "label": "No model auto-promotion",
+          "content": "Evaluation winners must not be auto-promoted to production.",
+          "node_type": "decision",
+          "timestamp": "2026-02-12T12:30:00+00:00"
+        },
+        {
+          "id": "ml_eval_canary_required",
+          "label": "Offline eval and canary",
+          "content": "Model releases require offline evaluation plus a canary window.",
+          "node_type": "decision",
+          "timestamp": "2026-03-18T09:40:00+00:00"
+        },
+        {
+          "id": "ml_pm_approval_gate",
+          "label": "PM approval rollout gate",
+          "content": "Full model rollout now requires product-manager approval after the canary.",
+          "node_type": "decision",
+          "timestamp": "2026-04-19T14:30:00+00:00"
+        }
+      ],
+      "relations": [
+        {
+          "source_fact_id": "ml_eval_canary_required",
+          "target_fact_id": "ml_no_auto_promote",
+          "relationship": "derived_from",
+          "metadata": {
+            "origin": "comparative-modelops"
+          }
+        },
+        {
+          "source_fact_id": "ml_pm_approval_gate",
+          "target_fact_id": "ml_eval_canary_required",
+          "relationship": "updates",
+          "metadata": {
+            "origin": "comparative-temporal"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regional_launch",
+      "title": "Regional launch constraints",
+      "sessions": [
+        {
+          "id": "regional_launch_s1",
+          "timestamp": "2026-01-30T13:10:00+00:00",
+          "transcript": "User: We are not launching payments in Brazil until tax invoicing is ready. Agent: Recorded, Brazil payments launch is blocked by tax invoicing.",
+          "support_fact_ids": [
+            "region_no_brazil_payments"
+          ]
+        },
+        {
+          "id": "regional_launch_s2",
+          "timestamp": "2026-03-21T10:00:00+00:00",
+          "transcript": "User: Start regional rollout with Canada because compliance is already reviewed. Agent: Noted, Canada is first for regional rollout.",
+          "support_fact_ids": [
+            "region_canada_first"
+          ]
+        },
+        {
+          "id": "regional_launch_s3",
+          "timestamp": "2026-04-16T18:00:00+00:00",
+          "transcript": "User: The latest regional plan keeps Canada first and adds Brazil only after invoicing certification. Agent: Updated regional launch plan.",
+          "support_fact_ids": [
+            "region_brazil_after_cert"
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "region_no_brazil_payments",
+          "label": "Brazil payments blocked",
+          "content": "Payments must not launch in Brazil until tax invoicing is ready.",
+          "node_type": "decision",
+          "timestamp": "2026-01-30T13:10:00+00:00"
+        },
+        {
+          "id": "region_canada_first",
+          "label": "Canada first launch",
+          "content": "Canada is the first regional rollout because compliance has been reviewed.",
+          "node_type": "decision",
+          "timestamp": "2026-03-21T10:00:00+00:00"
+        },
+        {
+          "id": "region_brazil_after_cert",
+          "label": "Brazil after certification",
+          "content": "Brazil payments launch only after invoicing certification while Canada remains first.",
+          "node_type": "decision",
+          "timestamp": "2026-04-16T18:00:00+00:00"
+        }
+      ],
+      "relations": [
+        {
+          "source_fact_id": "region_brazil_after_cert",
+          "target_fact_id": "region_no_brazil_payments",
+          "relationship": "updates",
+          "metadata": {
+            "origin": "comparative-temporal"
+          }
+        },
+        {
+          "source_fact_id": "region_brazil_after_cert",
+          "target_fact_id": "region_canada_first",
+          "relationship": "relates_to",
+          "metadata": {
+            "origin": "comparative-regional"
+          }
+        }
+      ]
     }
   ],
   "queries": [
@@ -1990,6 +2353,428 @@
         "ctx_concurrency_fact"
       ],
       "task_family": "cross_scenario_synthesis"
+    },
+    {
+      "id": "q70",
+      "task_family": "negation",
+      "query": "what did we decide not to put in application logs",
+      "gold_support_ids": [
+        "sec_no_raw_api_keys"
+      ]
+    },
+    {
+      "id": "q71",
+      "task_family": "negation",
+      "query": "what access pattern did the security review reject",
+      "gold_support_ids": [
+        "sec_no_shared_admins"
+      ]
+    },
+    {
+      "id": "q72",
+      "task_family": "implicit_reference",
+      "query": "what was the final answer to that security review item about emergency access",
+      "gold_support_ids": [
+        "sec_breakglass_audited"
+      ]
+    },
+    {
+      "id": "q73",
+      "task_family": "cross_scenario_synthesis",
+      "query": "what security-review constraints apply to logs and emergency access",
+      "gold_support_ids": [
+        "sec_no_raw_api_keys",
+        "sec_breakglass_audited"
+      ]
+    },
+    {
+      "id": "q74",
+      "task_family": "negation",
+      "query": "what refund capability did we block until monitoring existed",
+      "gold_support_ids": [
+        "risk_no_one_click_refunds"
+      ]
+    },
+    {
+      "id": "q75",
+      "task_family": "temporal_original",
+      "query": "what was the original high-value refund review process",
+      "gold_support_ids": [
+        "risk_manual_high_value_refunds"
+      ]
+    },
+    {
+      "id": "q76",
+      "task_family": "temporal_latest",
+      "query": "what is the latest high-risk refund review process",
+      "gold_support_ids": [
+        "risk_rules_engine_refunds"
+      ]
+    },
+    {
+      "id": "q77",
+      "task_family": "multi_session_change",
+      "query": "how did high-value refund handling change and what earlier restriction still applies",
+      "gold_support_ids": [
+        "risk_manual_high_value_refunds",
+        "risk_rules_engine_refunds",
+        "risk_no_one_click_refunds"
+      ]
+    },
+    {
+      "id": "q78",
+      "task_family": "negation",
+      "query": "what delivery method did we reject for full data exports",
+      "gold_support_ids": [
+        "privacy_no_email_exports"
+      ]
+    },
+    {
+      "id": "q79",
+      "task_family": "temporal_latest",
+      "query": "what is the latest enterprise data export policy",
+      "gold_support_ids": [
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q80",
+      "task_family": "decision_delta",
+      "query": "how did data export delivery evolve from the rejected email approach",
+      "gold_support_ids": [
+        "privacy_no_email_exports",
+        "privacy_signed_export_links",
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q81",
+      "task_family": "implicit_reference",
+      "query": "what is the current stance on that privacy export request from enterprise customers",
+      "gold_support_ids": [
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q82",
+      "task_family": "negation",
+      "query": "what model release shortcut did we rule out",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q83",
+      "task_family": "temporal_latest",
+      "query": "what is the latest gate before full model rollout",
+      "gold_support_ids": [
+        "ml_pm_approval_gate"
+      ]
+    },
+    {
+      "id": "q84",
+      "task_family": "multi_session_change",
+      "query": "how did model rollout controls evolve from eval winners to final approval",
+      "gold_support_ids": [
+        "ml_no_auto_promote",
+        "ml_eval_canary_required",
+        "ml_pm_approval_gate"
+      ]
+    },
+    {
+      "id": "q85",
+      "task_family": "implicit_reference",
+      "query": "what extra approval was added after the canary window",
+      "gold_support_ids": [
+        "ml_pm_approval_gate"
+      ]
+    },
+    {
+      "id": "q86",
+      "task_family": "negation",
+      "query": "where are we not launching payments until invoicing is ready",
+      "gold_support_ids": [
+        "region_no_brazil_payments"
+      ]
+    },
+    {
+      "id": "q87",
+      "task_family": "temporal_latest",
+      "query": "what is the latest Brazil payments launch condition",
+      "gold_support_ids": [
+        "region_brazil_after_cert"
+      ]
+    },
+    {
+      "id": "q88",
+      "task_family": "cross_scenario_synthesis",
+      "query": "what regional launch order and Brazil condition are current",
+      "gold_support_ids": [
+        "region_canada_first",
+        "region_brazil_after_cert"
+      ]
+    },
+    {
+      "id": "q89",
+      "task_family": "implicit_reference",
+      "query": "what was that tax-invoicing blocker about",
+      "gold_support_ids": [
+        "region_no_brazil_payments"
+      ]
+    },
+    {
+      "id": "q90",
+      "task_family": "cross_scenario_synthesis",
+      "query": "what do the privacy export and model rollout policies both require before broad release",
+      "gold_support_ids": [
+        "privacy_enterprise_approval",
+        "ml_pm_approval_gate"
+      ]
+    },
+    {
+      "id": "q91",
+      "task_family": "cross_scenario_synthesis",
+      "query": "which current policies require named accountability for privileged or enterprise-sensitive actions",
+      "gold_support_ids": [
+        "sec_breakglass_audited",
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q92",
+      "task_family": "cross_scenario_synthesis",
+      "query": "what controls prevent risky automation in refunds and model deployment",
+      "gold_support_ids": [
+        "risk_rules_engine_refunds",
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q93",
+      "task_family": "temporal_latest",
+      "query": "what is the latest security-review access decision",
+      "gold_support_ids": [
+        "sec_breakglass_audited"
+      ]
+    },
+    {
+      "id": "q94",
+      "task_family": "temporal_latest",
+      "query": "what is the latest privacy export stance",
+      "gold_support_ids": [
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q95",
+      "task_family": "temporal_latest",
+      "query": "what is the latest regional launch plan",
+      "gold_support_ids": [
+        "region_brazil_after_cert"
+      ]
+    },
+    {
+      "id": "q96",
+      "task_family": "decision_delta",
+      "query": "what changed between manual refund review and the current refund rules engine",
+      "gold_support_ids": [
+        "risk_manual_high_value_refunds",
+        "risk_rules_engine_refunds"
+      ]
+    },
+    {
+      "id": "q97",
+      "task_family": "decision_delta",
+      "query": "what changed between no model auto-promotion and the current rollout gate",
+      "gold_support_ids": [
+        "ml_no_auto_promote",
+        "ml_pm_approval_gate"
+      ]
+    },
+    {
+      "id": "q98",
+      "task_family": "adversarial_paraphrase",
+      "query": "which emergency access approach gives accountability without shared admin accounts",
+      "gold_support_ids": [
+        "sec_breakglass_audited"
+      ]
+    },
+    {
+      "id": "q99",
+      "task_family": "adversarial_paraphrase",
+      "query": "how do we hand users their data without sending the whole export through email",
+      "gold_support_ids": [
+        "privacy_signed_export_links",
+        "privacy_enterprise_approval"
+      ]
+    },
+    {
+      "id": "q100",
+      "task_family": "implicit_reference",
+      "query": "what is the current answer for that Brazil rollout concern",
+      "gold_support_ids": [
+        "region_brazil_after_cert"
+      ]
+    },
+    {
+      "id": "q101",
+      "task_family": "negation",
+      "query": "which model deployment shortcut remains forbidden even when evaluation looks good",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q102",
+      "task_family": "negation",
+      "query": "what refund shortcut is still off limits before abuse checks exist",
+      "gold_support_ids": [
+        "risk_no_one_click_refunds"
+      ]
+    },
+    {
+      "id": "q103",
+      "task_family": "negation",
+      "query": "which credential exposure practice did we forbid during the review",
+      "gold_support_ids": [
+        "sec_no_raw_api_keys"
+      ]
+    },
+    {
+      "id": "q104",
+      "task_family": "negation",
+      "query": "what privileged-access shortcut did we reject in favor of accountable ownership",
+      "gold_support_ids": [
+        "sec_no_shared_admins"
+      ]
+    },
+    {
+      "id": "q105",
+      "task_family": "negation",
+      "query": "which customer export delivery path is not allowed",
+      "gold_support_ids": [
+        "privacy_no_email_exports"
+      ]
+    },
+    {
+      "id": "q106",
+      "task_family": "negation",
+      "query": "which country remains blocked for payments until certification work finishes",
+      "gold_support_ids": [
+        "region_no_brazil_payments"
+      ]
+    },
+    {
+      "id": "q107",
+      "task_family": "implicit_reference",
+      "query": "what shortcut from model ops should not happen automatically",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q108",
+      "task_family": "implicit_reference",
+      "query": "what was the rejected admin-access pattern from the review",
+      "gold_support_ids": [
+        "sec_no_shared_admins"
+      ]
+    },
+    {
+      "id": "q109",
+      "task_family": "implicit_reference",
+      "query": "what export method was ruled out before signed links",
+      "gold_support_ids": [
+        "privacy_no_email_exports"
+      ]
+    },
+    {
+      "id": "q110",
+      "task_family": "implicit_reference",
+      "query": "what refund flow did we postpone because monitoring was missing",
+      "gold_support_ids": [
+        "risk_no_one_click_refunds"
+      ]
+    },
+    {
+      "id": "q111",
+      "task_family": "negation",
+      "query": "what should not happen just because a model scores best offline",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q112",
+      "task_family": "negation",
+      "query": "which model shipping step cannot be skipped by an evaluation win",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q113",
+      "task_family": "negation",
+      "query": "what automatic production move did model operations prohibit",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q114",
+      "task_family": "negation",
+      "query": "which release shortcut is disallowed before human rollout gates",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q115",
+      "task_family": "negation",
+      "query": "what model promotion behavior did we explicitly avoid",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q116",
+      "task_family": "negation",
+      "query": "what should not bypass canary and approval in model deployment",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q117",
+      "task_family": "implicit_reference",
+      "query": "what was the earlier forbidden shortcut before canary approval was added",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q118",
+      "task_family": "implicit_reference",
+      "query": "what did model ops say not to do automatically after evals",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q119",
+      "task_family": "implicit_reference",
+      "query": "what rejected model rollout behavior came before the PM gate",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
+    },
+    {
+      "id": "q120",
+      "task_family": "implicit_reference",
+      "query": "what unsafe model deployment automation remains rejected",
+      "gold_support_ids": [
+        "ml_no_auto_promote"
+      ]
     }
   ],
   "failure_protocol": [

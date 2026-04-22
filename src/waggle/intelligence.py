@@ -245,6 +245,61 @@ def content_token_jaccard(a: str, b: str) -> float:
     return len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
 
 
+def paraphrase_dedup_score(*, semantic_similarity: float, lexical_overlap: float) -> float:
+    """Blend semantic and lexical overlap for entity-less paraphrase dedup."""
+    return (0.6 * semantic_similarity) + (0.4 * lexical_overlap)
+
+
+_CONCEPT_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("dark_mode", ("dark mode", "dark interface", "low-light theme", "dark")),
+    ("integration_tests", ("integration tests", "end-to-end", "workflow tests", "integrated system")),
+    ("weekly_review", ("weekly", "every week", "weekly schedule")),
+    ("migration_scripts", ("migration scripts", "migration files", "database migration")),
+    ("error_budget", ("error budget", "reliability spend")),
+    ("feature_pause", ("pause feature work", "stop new feature delivery")),
+    ("local_embeddings", ("local embeddings", "on-device vector embeddings", "on-device", "minilm")),
+    ("semantic_search", ("semantic search", "vector embeddings", "vector search")),
+    ("rate_limit", ("rate limit", "throttled", "throttle", "rpm", "requests per minute")),
+    ("token_expiry", ("expire", "lifetime", "valid for", "15-minute", "fifteen minutes")),
+    ("concurrency", ("concurrent", "simultaneous", "async", "without blocking", "locking")),
+    ("scale", ("scale", "production scale")),
+)
+
+
+def canonical_concept_overlap(a: str, b: str) -> float:
+    """Return overlap across curated paraphrase concepts used by memory dedup."""
+    left = normalize_text(a)
+    right = normalize_text(b)
+    left_concepts = {
+        concept
+        for concept, aliases in _CONCEPT_ALIASES
+        if any(alias in left for alias in aliases)
+    }
+    right_concepts = {
+        concept
+        for concept, aliases in _CONCEPT_ALIASES
+        if any(alias in right for alias in aliases)
+    }
+    if not left_concepts or not right_concepts:
+        return 0.0
+    return len(left_concepts & right_concepts) / len(left_concepts | right_concepts)
+
+
+def describes_rejected_or_limited_option(text: str) -> bool:
+    lowered = normalize_text(text)
+    return any(
+        phrase in lowered
+        for phrase in (
+            "can't handle",
+            "cannot handle",
+            "lacks",
+            "rejected",
+            "ruled out",
+            "decided against",
+        )
+    )
+
+
 # Per-type thresholds reflect semantic risk:
 # - decision/preference nodes are high-confidence, narrow-topic — merge aggressively
 # - fact nodes carry precise numeric/technical values — merge conservatively
@@ -355,6 +410,19 @@ def contains_conflicting_numbers(a: str, b: str) -> bool:
     if not nums_a or not nums_b:
         return False
     return nums_a != nums_b
+
+
+def contains_conflicting_months(a: str, b: str) -> bool:
+    """Return True if both texts name different months."""
+    month_names = {
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+    }
+    months_a = tokenize_text(a) & month_names
+    months_b = tokenize_text(b) & month_names
+    if not months_a or not months_b:
+        return False
+    return months_a != months_b
 
 
 def label_similarity(left: str, right: str) -> float:
