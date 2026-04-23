@@ -35,7 +35,7 @@
 - **Evidence alignment fixes**: batch-ingested nodes now keep evidence turn indices aligned with the actual stored transcript rows, including tool/system-interleaved sessions.
 - **Export error contract hardening**: handoff export failures now surface as real CLI failures instead of being silently downgraded into `export_skipped`.
 - **Benchmark harness**: end-to-end `WaggleAdapter` connecting the graph engine to ConvoMem / MemBench runners with automated exact-match scoring and latency logging.
-- **LongMemEval integration**: CLI-driven retrieval evaluation against the official LongMemEval split (`97.4% R@5` / `88.2% Exact@5` in `graph_raw`, `96.4%` / `85.6%` in `graph_hybrid`).
+- **LongMemEval integration**: CLI-driven retrieval evaluation against the official LongMemEval split (`97.4% R@5` / `88.4% Exact@5` in the latest `graph_raw` full-run artifact, `96.4%` / `85.6%` in the saved `graph_hybrid` artifact).
 - **Observability stack**: Grafana dashboard, Prometheus config, and Docker Compose overlay in `deploy/observability/`.
 - **Operational runbooks**: incident response, secret management, API-key rotation, and onboarding guides added to `docs/runbooks/`.
 
@@ -471,7 +471,7 @@ LongMemEval session-retrieval results (500 questions):
 
 | Method | R@5 | Exact@5 | Notes |
 |------|-----|---------|-------|
-| `graph_raw` | `97.4%` | `88.2%` | Full split, no second-stage reranking (`13/500` misses). Source: [`results_graph_raw.json`](./benchmarks/longmemeval/results_graph_raw.json) |
+| `graph_raw` | `97.4%` | `88.4%` | Full split, no second-stage reranking (`13/500` misses, `58/500` non-exact). Source: [`results_graph_raw_0.1.10_full.json`](./benchmarks/longmemeval/results_graph_raw_0.1.10_full.json) |
 | `graph_hybrid` | `96.4%` | `85.6%` | Full split with hybrid reranking (`18/500` misses). Source: [`results_graph_hybrid.json`](./benchmarks/longmemeval/results_graph_hybrid.json) |
 
 `Exact@5` is stricter than R@5 and is included here to show precision on support-session retrieval, not just any top-5 hit.
