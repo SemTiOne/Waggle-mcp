@@ -23,6 +23,7 @@ Waggle is a local-first MCP memory layer that stores conversation as a persisten
 
 ## Best user-facing commands
 
+- `waggle-mcp setup --yes`
 - `waggle-mcp init`
 - `waggle-mcp features`
 - `waggle-mcp ingest-transcript-handoff`

@@ -42,7 +42,7 @@ That demo exercises the full MCP surface: graph ingestion, retrieval, conflict h
 
 **→ Individual developer** extending Claude, Codex, Cursor, or Antigravity with persistent memory:
 Use Python 3.11+ and install via `pipx` (no venv activation needed):
-`brew install pipx && pipx ensurepath && pipx install waggle-mcp && waggle-mcp init`.
+`brew install pipx && pipx ensurepath && pipx install waggle-mcp && waggle-mcp setup --yes`.
 SQLite + local embeddings, zero infra.
 
 **→ Team sharing a canonical project memory across multiple agents and developers:** Waggle ships with a Docker image, Kubernetes manifests, Prometheus metrics, and multi-tenant auth. See [deploy/kubernetes/](./deploy/kubernetes/) and [docs/runbooks/](./docs/runbooks/).
@@ -86,21 +86,21 @@ The simplest way to use Waggle is via `pipx`. This installs the package in an is
 # 1. Install waggle globally
 pipx install waggle-mcp
 
-# 2. Run the interactive setup
-waggle-mcp init
+# 2. Run the one-line non-interactive setup
+waggle-mcp setup --yes
 
 # 3. Verify everything looks healthy
 waggle-mcp doctor
 ```
 *(If you don't have `pipx`, install it via `brew install pipx && pipx ensurepath`.)*
 
-Running `init` will detect your MCP client (Codex, Claude, Cursor, or Antigravity), write the necessary configuration, and initialize your local database. Restart your client, and you're ready to go.
+Running `setup --yes` detects local MCP clients, writes the necessary configuration, and initializes your local database directory. Restart your client, and you're ready to go. Use `waggle-mcp init` if you prefer the older interactive wizard.
 
 `waggle-mcp doctor` is your first stop if anything doesn't work — it checks config file locations, the embedding model cache, DB path, and surfaces the most common API mistakes.
 
 > **Windows users:** Run all commands with `python -X utf8` or set `PYTHONUTF8=1` in your environment to avoid `UnicodeEncodeError` from emoji in log output.
 
-For Codex, `waggle-mcp init` also writes a managed Waggle block into `AGENTS.md` in the current workspace so automatic memory is enabled by default for that repo.
+For Codex, `waggle-mcp setup --yes` and `waggle-mcp init` also write a managed Waggle block into `AGENTS.md` in the current workspace so automatic memory is enabled by default for that repo.
 
 Manual MCP setup examples for **Codex**, **Claude Code**, **Cursor**, and **Antigravity** are in [docs/reference.md](./docs/reference.md#manual-client-configuration).
 
@@ -257,7 +257,7 @@ If you see that kind of recall in a new session, you're live.
 
 Registering Waggle as an MCP server is necessary, but it is not sufficient for automatic cross-session memory. The client still needs instructions telling the agent to use Waggle in the background.
 
-`waggle-mcp init` now does this automatically for Codex by writing a managed Waggle memory block to the workspace `AGENTS.md`. Other clients still need their equivalent instruction layer.
+`waggle-mcp setup --yes` and `waggle-mcp init` now do this automatically for Codex by writing a managed Waggle memory block to the workspace `AGENTS.md`. Other clients still need their equivalent instruction layer.
 
 There is not a better generic repo-side mechanism for third-party MCP clients today. If the client does not provide a runtime hook that automatically calls memory tools, the practical setup is:
 - register Waggle as an MCP server
@@ -309,7 +309,8 @@ Waggle includes a built-in CLI for setup, maintenance, and learning the memory s
 | `waggle-mcp --help` | Show all available commands, options, and usage examples. |
 | `waggle-mcp features` | **Best first command** — Explain the main tools, graph workflows, and how connected context reaches the model. |
 | `waggle-mcp doctor` | **Run this if something isn't working** — checks config files, model cache, DB path, Windows encoding, and API gotchas. |
-| `waggle-mcp init` | Interactive setup wizard to configure Codex, Claude, Cursor, or Antigravity. |
+| `waggle-mcp setup --yes` | Non-interactive one-line setup that auto-patches detected supported clients. |
+| `waggle-mcp init` | Interactive setup wizard to configure one MCP client. |
 | `waggle-mcp serve` | Run the MCP server (usually started automatically by your client). |
 | `waggle-mcp ingest-transcript-handoff` | Ingest a rollover transcript and export a handoff bundle for the next window or IDE. |
 | `waggle-mcp export-context-bundle` | Export a portable Markdown/JSON context pack for another AI. |

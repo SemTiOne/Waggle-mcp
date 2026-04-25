@@ -18,8 +18,12 @@ from waggle.server import (
     _build_parser,
     _default_graph,
     _run_admin_command,
+    _run_setup,
+    _setup_clients_from_args,
     _write_codex_agents,
     _write_codex,
+    _write_antigravity,
+    _write_gemini,
     _write_other,
 )
 
@@ -667,6 +671,68 @@ def test_write_codex_config_no_longer_uses_pythonpath(monkeypatch: pytest.Monkey
     assert "PYTHONPATH" not in contents
     assert 'args = ["-m", "waggle.server"]' in contents
     assert '[mcp_servers.waggle.env]' in contents
+
+
+def test_parser_exposes_non_interactive_setup_command() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["setup", "--yes", "--clients", "codex,cursor", "--model", "deterministic"])
+
+    assert args.command == "setup"
+    assert args.yes is True
+    assert args.clients == "codex,cursor"
+    assert args.model == "deterministic"
+
+
+def test_setup_client_arg_normalization() -> None:
+    assert _setup_clients_from_args("codex,gemini,antigravity") == ["Codex", "Gemini CLI", "Antigravity"]
+
+
+def test_write_gemini_config_preserves_existing_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    settings_file = tmp_path / ".gemini" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text(json.dumps({"theme": "dark", "mcpServers": {"other": {"command": "x"}}}))
+
+    config_path = _write_gemini(str(tmp_path / "memory.db"), "/tmp/fake-python")
+    payload = json.loads(config_path.read_text())
+
+    assert payload["theme"] == "dark"
+    assert "other" in payload["mcpServers"]
+    assert payload["mcpServers"]["waggle"]["command"] == "/tmp/fake-python"
+    assert payload["mcpServers"]["waggle"]["trust"] is False
+
+
+def test_write_antigravity_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    config_path = _write_antigravity(str(tmp_path / "memory.db"), "/tmp/fake-python")
+    payload = json.loads(config_path.read_text())
+
+    assert config_path == tmp_path / ".gemini" / "antigravity" / "mcp_config.json"
+    assert payload["mcpServers"]["waggle"]["args"] == ["-m", "waggle.server"]
+
+
+def test_run_setup_writes_codex_config_and_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    result = _run_setup(
+        SimpleNamespace(
+            yes=True,
+            dry_run=False,
+            clients="codex",
+            db=str(tmp_path / "memory.db"),
+            model="deterministic",
+            project_instructions=True,
+            run_doctor=False,
+        )
+    )
+
+    assert result == 0
+    config_text = (tmp_path / ".codex" / "config.toml").read_text()
+    assert '[mcp_servers.waggle]' in config_text
+    assert 'WAGGLE_MODEL = "deterministic"' in config_text
+    assert AUTOMATIC_MEMORY_RULE_TEXT.strip() in (tmp_path / "AGENTS.md").read_text()
 
 
 def test_write_codex_config_updates_existing_file_without_duplicates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

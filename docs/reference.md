@@ -10,12 +10,12 @@ This page keeps the lower-level operational and configuration material out of th
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-waggle-mcp init
+waggle-mcp setup --yes
 ```
 
 If `.venv` already exists from a different Python version, remove it and recreate it. Reusing a stale environment can leave wrapper scripts pointing at the wrong interpreter.
 
-When you run `waggle-mcp init` from a Codex workspace, it also writes a managed Waggle automatic-memory block into `AGENTS.md` in the current directory so Codex threads in that repo pick it up by default.
+When you run `waggle-mcp setup --yes` or `waggle-mcp init` from a Codex workspace, it also writes a managed Waggle automatic-memory block into `AGENTS.md` in the current directory so Codex threads in that repo pick it up by default.
 
 ### Neo4j backend
 
@@ -125,6 +125,43 @@ env     = {
 ```
 
 A pre-filled example is in [codex_config.example.toml](../codex_config.example.toml).
+
+### Gemini CLI
+
+Gemini CLI supports MCP servers through `~/.gemini/settings.json` or the `gemini mcp add` command.
+
+```bash
+gemini mcp add waggle \
+  -e WAGGLE_TRANSPORT=stdio \
+  -e WAGGLE_BACKEND=sqlite \
+  -e WAGGLE_DB_PATH=~/.waggle/memory.db \
+  -e WAGGLE_DEFAULT_TENANT_ID=local-default \
+  -e WAGGLE_MODEL=all-MiniLM-L6-v2 \
+  waggle-mcp serve
+```
+
+Equivalent `~/.gemini/settings.json` entry:
+
+```json
+{
+  "mcpServers": {
+    "waggle": {
+      "command": "waggle-mcp",
+      "args": ["serve"],
+      "env": {
+        "WAGGLE_TRANSPORT": "stdio",
+        "WAGGLE_BACKEND": "sqlite",
+        "WAGGLE_DB_PATH": "~/.waggle/memory.db",
+        "WAGGLE_DEFAULT_TENANT_ID": "local-default",
+        "WAGGLE_MODEL": "all-MiniLM-L6-v2"
+      },
+      "trust": false
+    }
+  }
+}
+```
+
+After restarting Gemini CLI, run `/mcp` to confirm Waggle is connected.
 
 ### Cursor
 

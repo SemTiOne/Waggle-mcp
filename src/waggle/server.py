@@ -1795,7 +1795,7 @@ Important behavior
 Common workflows
 ----------------
 - Quick setup:
-  waggle-mcp init
+  waggle-mcp setup --yes
 
 - Start the MCP server:
   waggle-mcp serve
@@ -1817,7 +1817,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Use 'waggle-mcp features' for a detailed guide to ingestion, graph retrieval, "
             "conflict handling, and export workflows."
         ),
-        epilog="Examples: 'waggle-mcp init', 'waggle-mcp serve', 'waggle-mcp features'.",
+        epilog="Examples: 'waggle-mcp setup --yes', 'waggle-mcp serve', 'waggle-mcp features'.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -1919,6 +1919,42 @@ def _build_parser() -> argparse.ArgumentParser:
         default=16 * 1024 * 1024,
         help="Hard input-size cap in bytes (default: 16 MiB). Oversized payloads fail with exit code 1.",
     )
+
+    setup = subparsers.add_parser(
+        "setup",
+        help="Non-interactive one-line setup — auto-patch supported MCP clients.",
+        description=(
+            "Patch supported MCP client config files without prompts. "
+            "By default, --clients auto updates detected clients; use --yes to run from install scripts."
+        ),
+    )
+    setup.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm non-interactive setup. Required unless --dry-run is used.",
+    )
+    setup.add_argument(
+        "--clients",
+        default="auto",
+        help=(
+            "Comma-separated clients to configure, or 'auto'. "
+            "Supported: codex, claude-desktop, cursor, gemini, antigravity, other."
+        ),
+    )
+    setup.add_argument("--db", default="", help="Database path. Default: ~/.waggle/memory.db")
+    setup.add_argument(
+        "--model",
+        default="all-MiniLM-L6-v2",
+        help="Embedding model for client env. Use 'deterministic' for offline-safe startup.",
+    )
+    setup.add_argument(
+        "--project-instructions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write supported project instruction files, currently Codex AGENTS.md.",
+    )
+    setup.add_argument("--dry-run", action="store_true", help="Show what would change without writing files.")
+    setup.add_argument("--run-doctor", action=argparse.BooleanOptionalAction, default=True)
 
     subparsers.add_parser("init", help="Interactive setup wizard — configure an MCP client to use waggle-mcp.")
     subparsers.add_parser(
@@ -2043,7 +2079,7 @@ _KNOWN_CONFIG_PATHS: list[tuple[str, str]] = [
     ("Antigravity AI agent (macOS/Linux)", "~/.gemini/antigravity/mcp_config.json"),
     ("Antigravity AI agent (Windows)", "%USERPROFILE%\\.gemini\\antigravity\\mcp_config.json"),
     ("VS Code extension (Windows)", "%APPDATA%\\Antigravity\\User\\mcp.json"),
-    ("Codex", "~/.codex/config.json"),
+    ("Codex", "~/.codex/config.toml"),
 ]
 
 _DOCTOR_KNOWN_GOTCHAS = """\
@@ -2083,9 +2119,14 @@ def _run_doctor(config: AppConfig) -> int:
         path = Path(raw).expanduser()
         if path.exists():
             try:
-                data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-                servers = data.get("mcpServers", data.get("tools", {}) if isinstance(data, dict) else {})
-                if isinstance(servers, dict) and "waggle" in servers:
+                raw_text = path.read_text(encoding="utf-8", errors="replace")
+                if path.suffix == ".toml":
+                    has_waggle = "[mcp_servers.waggle]" in raw_text
+                else:
+                    data = json.loads(raw_text)
+                    servers = data.get("mcpServers", data.get("tools", {}) if isinstance(data, dict) else {})
+                    has_waggle = isinstance(servers, dict) and "waggle" in servers
+                if has_waggle:
                     waggle_found_in.append(label)
                     _ok(f"{label}\n     {path}  [waggle entry found]")
                 else:
@@ -2101,7 +2142,7 @@ def _run_doctor(config: AppConfig) -> int:
     if not waggle_found_in:
         issues.append(
             "No MCP client config file contains a 'waggle' server entry. "
-            "Run 'waggle-mcp init' to create one, or add it manually."
+            "Run 'waggle-mcp setup --yes' to create one, or add it manually."
         )
     else:
         ok_items.append(f"Waggle found in: {', '.join(waggle_found_in)}")
@@ -2441,6 +2482,68 @@ def _write_cursor(db_path: str, python_exe: str) -> Path:
     return config_file
 
 
+def _write_gemini(db_path: str, python_exe: str) -> Path:
+    """Write or update ~/.gemini/settings.json."""
+    config_dir = Path.home() / ".gemini"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "settings.json"
+
+    existing: dict = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text())
+        except json.JSONDecodeError:
+            pass
+
+    existing.setdefault("mcpServers", {})
+    existing["mcpServers"]["waggle"] = {
+        "command": python_exe,
+        "args": ["-m", "waggle.server"],
+        "env": {
+            "WAGGLE_TRANSPORT": "stdio",
+            "WAGGLE_BACKEND": "sqlite",
+            "WAGGLE_DB_PATH": db_path,
+            "WAGGLE_DEFAULT_TENANT_ID": "local-default",
+            "WAGGLE_MODEL": "all-MiniLM-L6-v2",
+        },
+        "trust": False,
+    }
+    config_file.write_text(json.dumps(existing, indent=2))
+    return config_file
+
+
+def _write_antigravity(db_path: str, python_exe: str) -> Path:
+    """Write or update the Antigravity AI agent MCP config."""
+    if sys.platform == "win32":
+        config_dir = Path.home() / ".gemini" / "antigravity"
+    else:
+        config_dir = Path.home() / ".gemini" / "antigravity"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "mcp_config.json"
+
+    existing: dict = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text())
+        except json.JSONDecodeError:
+            pass
+
+    existing.setdefault("mcpServers", {})
+    existing["mcpServers"]["waggle"] = {
+        "command": python_exe,
+        "args": ["-m", "waggle.server"],
+        "env": {
+            "WAGGLE_TRANSPORT": "stdio",
+            "WAGGLE_BACKEND": "sqlite",
+            "WAGGLE_DB_PATH": db_path,
+            "WAGGLE_DEFAULT_TENANT_ID": "local-default",
+            "WAGGLE_MODEL": "all-MiniLM-L6-v2",
+        },
+    }
+    config_file.write_text(json.dumps(existing, indent=2))
+    return config_file
+
+
 def _write_codex(db_path: str, python_exe: str) -> Path:
     """Write or update the Waggle MCP server block in ~/.codex/config.toml."""
     config_dir = Path.home() / ".codex"
@@ -2512,6 +2615,8 @@ def _write_other(db_path: str, python_exe: str) -> Path:
 _CLIENT_WRITERS = {
     "Claude Desktop": _write_claude_desktop,
     "Cursor": _write_cursor,
+    "Gemini CLI": _write_gemini,
+    "Antigravity": _write_antigravity,
     "Codex": _write_codex,
     "Other": _write_other,
 }
@@ -2519,9 +2624,168 @@ _CLIENT_WRITERS = {
 _RESTART_HINTS = {
     "Claude Desktop": "Restart Claude Desktop to activate.",
     "Cursor": "Reload the Cursor window (Cmd/Ctrl+Shift+P → 'Reload Window') to activate.",
+    "Gemini CLI": "Restart Gemini CLI, then run /mcp to confirm Waggle is connected.",
+    "Antigravity": "Restart Antigravity to activate the AI agent MCP config.",
     "Codex": "Restart Codex to activate.",
     "Other": "Add the JSON config to your MCP client's server list, then restart it.",
 }
+
+_CLIENT_ALIASES = {
+    "claude": "Claude Desktop",
+    "claude-desktop": "Claude Desktop",
+    "claude_desktop": "Claude Desktop",
+    "cursor": "Cursor",
+    "gemini": "Gemini CLI",
+    "gemini-cli": "Gemini CLI",
+    "gemini_cli": "Gemini CLI",
+    "antigravity": "Antigravity",
+    "codex": "Codex",
+    "other": "Other",
+}
+
+
+def _client_config_probe_paths() -> dict[str, list[Path]]:
+    return {
+        "Claude Desktop": [
+            Path.home() / ".config" / "claude" / "claude_desktop_config.json",
+            Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
+        ],
+        "Cursor": [
+            Path.home() / ".cursor" / "mcp.json",
+            Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "mcp.json",
+        ],
+        "Gemini CLI": [Path.home() / ".gemini" / "settings.json"],
+        "Antigravity": [Path.home() / ".gemini" / "antigravity" / "mcp_config.json"],
+        "Codex": [Path.home() / ".codex" / "config.toml"],
+    }
+
+
+def _normalize_setup_clients(raw_clients: str) -> list[str]:
+    clients: list[str] = []
+    for raw_client in raw_clients.split(","):
+        key = raw_client.strip().lower()
+        if not key:
+            continue
+        client = _CLIENT_ALIASES.get(key)
+        if client is None:
+            supported = ", ".join(sorted(_CLIENT_ALIASES))
+            raise ValidationFailure(f"Unsupported setup client: {raw_client!r}. Supported values: auto, {supported}.")
+        if client not in clients:
+            clients.append(client)
+    if not clients:
+        raise ValidationFailure("No setup clients were provided.")
+    return clients
+
+
+def _detect_setup_clients() -> list[str]:
+    detected: list[str] = []
+    for client, paths in _client_config_probe_paths().items():
+        if any(path.exists() for path in paths):
+            detected.append(client)
+    if not detected and (Path.cwd() / "AGENTS.md").exists():
+        detected.append("Codex")
+    return detected
+
+
+def _setup_clients_from_args(raw_clients: str) -> list[str]:
+    if raw_clients.strip().lower() == "auto":
+        detected = _detect_setup_clients()
+        return detected or ["Codex"]
+    return _normalize_setup_clients(raw_clients)
+
+
+def _run_setup(args: argparse.Namespace) -> int:
+    """Non-interactive setup command for one-line installs."""
+    if not args.yes and not args.dry_run:
+        _fail("Refusing to patch config without --yes. Use --dry-run to preview changes.")
+        return 1
+
+    db_path_raw = args.db or str(Path.home() / ".waggle" / "memory.db")
+    db_path = str(Path(db_path_raw).expanduser().resolve())
+    python_exe = _python_exe()
+    clients = _setup_clients_from_args(args.clients)
+
+    print()
+    print(_c(_BOLD, "waggle-mcp setup"))
+    print(_c(_CYAN, "─" * 40))
+    print(f"  clients: {', '.join(clients)}")
+    print(f"  database: {db_path}")
+    print(f"  model: {args.model}")
+    if args.dry_run:
+        print(f"  mode: dry-run")
+        for client in clients:
+            _ok(f"Would configure {client}")
+        if args.project_instructions and "Codex" in clients:
+            agents_path = (Path.cwd() / "AGENTS.md").resolve()
+            _ok(f"Would write Codex automatic-memory instructions to {agents_path}")
+        print()
+        return 0
+
+    for client in clients:
+        writer = _CLIENT_WRITERS[client]
+        try:
+            config_file = writer(db_path, python_exe)
+            if args.model != "all-MiniLM-L6-v2":
+                _replace_model_in_client_config(config_file, args.model)
+            _ok(f"{client} config written to {config_file}")
+        except OSError as exc:
+            _fail(f"Could not write {client} config: {exc}")
+            return 1
+
+    if args.project_instructions and "Codex" in clients:
+        try:
+            agents_file = _write_codex_agents()
+            _ok(f"Codex automatic-memory instructions written to {agents_file}")
+        except OSError as exc:
+            _fail(f"Could not write AGENTS.md instructions: {exc}")
+            return 1
+
+    try:
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        _ok(f"Database directory ready at {Path(db_path).parent}")
+    except OSError as exc:
+        _fail(f"Could not create database directory: {exc}")
+        return 1
+
+    for client in clients:
+        print(f"  {_c(_CYAN, chr(0x27A1))}  {_RESTART_HINTS[client]}")
+    print()
+
+    if args.run_doctor:
+        doctor_config = AppConfig.from_env()
+        doctor_config.db_path = db_path
+        doctor_config.model_name = args.model
+        doctor_exit = _run_doctor(doctor_config)
+        if doctor_exit:
+            print(_c(_CYAN, "Setup completed; doctor reported follow-up warnings above."))
+        return 0
+    return 0
+
+
+def _replace_model_in_client_config(config_file: Path, model_name: str) -> None:
+    """Patch WAGGLE_MODEL after using the existing config writers."""
+    if config_file.suffix == ".toml":
+        text = config_file.read_text()
+        text = re.sub(r'WAGGLE_MODEL = "[^"]*"', f'WAGGLE_MODEL = "{model_name}"', text)
+        config_file.write_text(text)
+        return
+
+    try:
+        payload = json.loads(config_file.read_text())
+    except json.JSONDecodeError:
+        return
+
+    if config_file.name == "waggle-mcp-config.json":
+        env = payload.setdefault("env", {})
+        if isinstance(env, dict):
+            env["WAGGLE_MODEL"] = model_name
+    else:
+        servers = payload.get("mcpServers")
+        if isinstance(servers, dict) and isinstance(servers.get("waggle"), dict):
+            env = servers["waggle"].setdefault("env", {})
+            if isinstance(env, dict):
+                env["WAGGLE_MODEL"] = model_name
+    config_file.write_text(json.dumps(payload, indent=2))
 
 
 def _run_init() -> int:
@@ -2591,6 +2855,12 @@ def main() -> None:
     command = args.command or "serve"
 
     # Commands that should work before full backend/app initialization.
+    if command == "setup":
+        try:
+            sys.exit(_run_setup(args))
+        except ValidationFailure as exc:
+            _emit_cli_error("validation_error", str(exc), {})
+            sys.exit(1)
     if command == "init":
         sys.exit(_run_init())
     if command == "features":

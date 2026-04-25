@@ -6,7 +6,7 @@ This is the recommended setup for:
 - Codex global/project instructions
 - Antigravity User Rules
 
-`waggle-mcp init` writes this rule into a managed `AGENTS.md` block automatically when run from a Codex workspace.
+`waggle-mcp setup --yes` and `waggle-mcp init` write this rule into a managed `AGENTS.md` block automatically when run from a Codex workspace.
 
 ## Rule Text
 
