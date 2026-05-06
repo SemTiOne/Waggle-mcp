@@ -424,10 +424,11 @@ waggle-mcp/
 ├── benchmarks/fixtures/
 ├── benchmarks/longmemeval/
 ├── deploy/
-├── docs/runbooks/
+├── docs/
 ├── scripts/
+├── graph-ui/
 ├── src/waggle/
-├── tests/artifacts/
+├── tests/
 ├── Dockerfile
 ├── pyproject.toml
 └── README.md

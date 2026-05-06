@@ -4,6 +4,11 @@
 
 ### Added
 
+- Added Apache-2.0 licensing for Waggle Core via `LICENSE`.
+- Added `COMMERCIAL.md` to clarify the public Core vs future paid Plus split.
+- Updated README positioning to present this repository as public Waggle Core
+  and Waggle Plus as coming soon.
+
 - **Temporal validity enforcement** (`valid_to` / `valid_from` filtering):
   - `query_graph` and `aggregate_graph` now exclude nodes whose `valid_to` has
     passed by default.
