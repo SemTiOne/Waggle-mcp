@@ -402,6 +402,18 @@ class TestMCPToolRegistered:
         tool_names = {t.name for t in tools}
         assert "build_context" in tool_names, f"build_context not in {sorted(tool_names)}"
 
+    def test_build_context_tool_hidden_when_feature_flag_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """build_context must be hidden and rejected when the feature flag is disabled."""
+        monkeypatch.setattr("waggle.server.RECURSIVE_CONTEXT_ENABLED", False)
+        server = self._make_server(tmp_path)
+
+        tool_names = {t.name for t in server.build_tools()}
+        assert "build_context" not in tool_names
+
+        result = server.handle_tool_call("build_context", {"query": "What did we decide?"})
+        assert result.isError is True
+        assert "disabled" in result.content[0].text.lower()
+
     def test_aliases_resolve_to_build_context(self, tmp_path: Path) -> None:
         """recursive_context, assemble_context, rlm_context must resolve to build_context."""
         from waggle.server import _TOOL_ALIASES

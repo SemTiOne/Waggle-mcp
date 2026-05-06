@@ -792,6 +792,8 @@ class TranscriptIngestionResult(BaseModel):
     json_path: Optional[str] = None
     export_node_count: int = 0
     export_edge_count: int = 0
+    checkpoint_path: Optional[str] = None
+    checkpoint_scope: str = ""
 
 
 # ---------------------------------------------------------------------------

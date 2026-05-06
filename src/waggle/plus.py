@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version as package_version
+from typing import Any
+
+_DEFAULT_PLUS_MODULE = "waggle_plus"
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True, slots=True)
+class PlusStatus:
+    module_name: str
+    enabled: bool
+    installed: bool
+    version: str | None
+    capabilities: tuple[str, ...]
+    message: str
+    import_error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "module_name": self.module_name,
+            "enabled": self.enabled,
+            "installed": self.installed,
+            "version": self.version,
+            "capabilities": list(self.capabilities),
+            "message": self.message,
+            "import_error": self.import_error,
+        }
+
+
+def _resolve_module_name(module_name: str | None = None) -> str:
+    resolved = (module_name or os.environ.get("WAGGLE_PLUS_MODULE", _DEFAULT_PLUS_MODULE)).strip()
+    return resolved or _DEFAULT_PLUS_MODULE
+
+
+def detect_plus(module_name: str | None = None) -> PlusStatus:
+    resolved_name = _resolve_module_name(module_name)
+    if os.environ.get("WAGGLE_PLUS_DISABLED", "").strip().lower() in _TRUE_VALUES:
+        return PlusStatus(
+            module_name=resolved_name,
+            enabled=False,
+            installed=False,
+            version=None,
+            capabilities=(),
+            message="Waggle Plus detection is disabled by WAGGLE_PLUS_DISABLED.",
+        )
+
+    try:
+        module = import_module(resolved_name)
+    except ModuleNotFoundError as exc:
+        if exc.name == resolved_name:
+            return PlusStatus(
+                module_name=resolved_name,
+                enabled=True,
+                installed=False,
+                version=None,
+                capabilities=(),
+                message="Waggle Plus is coming soon. Core is fully usable without it.",
+            )
+        return PlusStatus(
+            module_name=resolved_name,
+            enabled=True,
+            installed=False,
+            version=None,
+            capabilities=(),
+            message="Waggle Plus could not be imported because one of its dependencies is missing.",
+            import_error=str(exc),
+        )
+    except Exception as exc:
+        return PlusStatus(
+            module_name=resolved_name,
+            enabled=True,
+            installed=False,
+            version=None,
+            capabilities=(),
+            message="Waggle Plus was detected but failed to import cleanly.",
+            import_error=str(exc),
+        )
+
+    capabilities = _read_capabilities(module)
+    detected_version = _read_version(module, resolved_name)
+    return PlusStatus(
+        module_name=resolved_name,
+        enabled=True,
+        installed=True,
+        version=detected_version,
+        capabilities=capabilities,
+        message="Waggle Plus module detected.",
+    )
+
+
+def _read_capabilities(module: Any) -> tuple[str, ...]:
+    raw_capabilities = getattr(module, "WAGGLE_PLUS_CAPABILITIES", ())
+    if raw_capabilities is None:
+        return ()
+    values: list[str] = []
+    for item in raw_capabilities:
+        value = str(item).strip()
+        if value:
+            values.append(value)
+    return tuple(values)
+
+
+def _read_version(module: Any, module_name: str) -> str | None:
+    explicit_version = getattr(module, "__version__", None)
+    if explicit_version:
+        return str(explicit_version)
+    candidates = [module_name, module_name.replace("_", "-")]
+    for candidate in candidates:
+        try:
+            return package_version(candidate)
+        except PackageNotFoundError:
+            continue
+    return None

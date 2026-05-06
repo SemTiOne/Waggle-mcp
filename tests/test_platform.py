@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from starlette.testclient import TestClient
 
+import waggle
 from waggle.auth import hash_api_key, verify_api_key
 from waggle.config import AppConfig
 from waggle.errors import RateLimitExceededError
@@ -103,6 +104,12 @@ def test_app_config_disables_hybrid_rerank_by_default(monkeypatch: pytest.Monkey
 
     assert config.hybrid_rerank_enabled is False
     assert config.hybrid_rerank_model == "claude-3-5-sonnet-latest"
+
+
+def test_waggle_unknown_lazy_export_raises_attribute_error() -> None:
+    with pytest.raises(AttributeError):
+        getattr(waggle, "definitely_missing_export")
+    assert hasattr(waggle, "definitely_missing_export") is False
 
 
 def test_rate_limiter_enforces_request_and_concurrency_limits() -> None:

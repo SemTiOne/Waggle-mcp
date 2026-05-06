@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+from types import ModuleType
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,6 +22,7 @@ from waggle.server import (
     _run_admin_command,
     _run_doctor,
     _run_graph_editor_command,
+    _run_plus_command,
     _run_setup,
     _setup_clients_from_args,
     _write_codex_agents,
@@ -120,6 +123,7 @@ def test_tool_schemas_are_glama_friendly(tmp_path: Path) -> None:
 def test_parser_accepts_graph_editor_commands() -> None:
     parser = _build_parser()
 
+    plus_args = parser.parse_args(["plus", "--json"])
     edit_args = parser.parse_args(["edit-graph", "--port", "8787", "--no-open"])
     view_args = parser.parse_args(["view-graph"])
     diff_args = parser.parse_args(["diff", "--file-a", "a.abhi", "--file-b", "b.abhi"])
@@ -128,6 +132,7 @@ def test_parser_accepts_graph_editor_commands() -> None:
     )
     query_args = parser.parse_args(["query", "--input", "memory.abhi", "--query-id", "q1"])
     load_chunks_args = parser.parse_args(["load-chunks", "--input", "memory.abhi", "--chunk-id", "decision_1"])
+    checkpoint_args = parser.parse_args(["checkpoint-context", "--project", "MCP", "--session-id", "thread-1", "--output", "handoff.abhi"])
     push_args = parser.parse_args(["push", "--client-secret-path", "client.json", "--folder-id", "folder123"])
     pull_args = parser.parse_args(["pull", "file123", "--client-secret-path", "client.json"])
     share_args = parser.parse_args(["share", "file123", "--client-secret-path", "client.json"])
@@ -146,6 +151,8 @@ def test_parser_accepts_graph_editor_commands() -> None:
         ]
     )
 
+    assert plus_args.command == "plus"
+    assert plus_args.json is True
     assert edit_args.command == "edit-graph"
     assert edit_args.port == 8787
     assert edit_args.open is False
@@ -159,6 +166,9 @@ def test_parser_accepts_graph_editor_commands() -> None:
     assert query_args.query_id == "q1"
     assert load_chunks_args.command == "load-chunks"
     assert load_chunks_args.chunk_ids == ["decision_1"]
+    assert checkpoint_args.command == "checkpoint-context"
+    assert checkpoint_args.project == "MCP"
+    assert checkpoint_args.session_id == "thread-1"
     assert push_args.command == "push"
     assert push_args.encrypt is True
     assert push_args.folder_id == "folder123"
@@ -272,6 +282,46 @@ def test_doctor_fix_reembeds_mixed_embedding_model_ids(tmp_path: Path, capsys: p
     repaired = graph.get_embedding_store_health()
     assert repaired["mixed_models"] is False
     assert repaired["transcript_stale_rows"] == 0
+
+
+def test_plus_command_reports_coming_soon_when_plus_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("WAGGLE_PLUS_MODULE", raising=False)
+    monkeypatch.delenv("WAGGLE_PLUS_DISABLED", raising=False)
+    sys.modules.pop("waggle_plus", None)
+
+    exit_code = _run_plus_command(SimpleNamespace(json=False))
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Installed: no" in stdout
+    assert "coming soon" in stdout.lower()
+    assert "separate private package" in stdout
+
+
+def test_plus_command_reports_detected_module(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_plus = ModuleType("waggle_plus")
+    fake_plus.__version__ = "1.2.3"
+    fake_plus.WAGGLE_PLUS_CAPABILITIES = ("advanced_context", "contradiction_intelligence")
+    monkeypatch.delenv("WAGGLE_PLUS_MODULE", raising=False)
+    monkeypatch.delenv("WAGGLE_PLUS_DISABLED", raising=False)
+    monkeypatch.setitem(sys.modules, "waggle_plus", fake_plus)
+
+    try:
+        exit_code = _run_plus_command(SimpleNamespace(json=False))
+        stdout = capsys.readouterr().out
+    finally:
+        sys.modules.pop("waggle_plus", None)
+
+    assert exit_code == 0
+    assert "Installed: yes" in stdout
+    assert "Version: 1.2.3" in stdout
+    assert "advanced_context, contradiction_intelligence" in stdout
 
 
 def test_run_admin_command_benchmark_oolong(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1044,6 +1094,41 @@ def test_export_context_bundle_cli_command(tmp_path: Path, capsys: pytest.Captur
     assert payload["mode"] == "graph"
     assert Path(payload["markdown_path"]).exists()
     assert Path(payload["json_path"]).exists()
+
+
+def test_checkpoint_context_cli_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    app = make_app(tmp_path)
+    app.graph.add_node(
+        label="Checkpoint Decision",
+        content="Use scoped checkpoints during context switches.",
+        node_type=NodeType.DECISION,
+        project="MCP",
+        session_id="thread-1",
+    )
+
+    args = SimpleNamespace(
+        command="checkpoint-context",
+        output_path=str(tmp_path / "handoff.abhi"),
+        project="MCP",
+        agent_id="",
+        session_id="thread-1",
+        scope="",
+        since_date="",
+        include_embeddings=True,
+        encrypt=False,
+        sign=False,
+        signing_key_dir="~/.waggle/keys",
+        redact_patterns=[],
+        passphrase_env="",
+        force=False,
+    )
+    exit_code = _run_admin_command(app.config, args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["checkpoint_scope"] == "session"
+    assert payload["output_path"].endswith(".abhi")
+    assert Path(payload["output_path"]).exists()
 
 
 def test_markdown_vault_tool_and_cli_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

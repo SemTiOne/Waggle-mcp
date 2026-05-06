@@ -84,6 +84,7 @@ from waggle.models import (
     TranscriptIngestionInput,
     TranscriptMessage,
 )
+from waggle.plus import detect_plus
 from waggle.rate_limit import RateLimiter
 from waggle.runtime_context import runtime_context
 from waggle.recursive_context import (
@@ -1234,59 +1235,65 @@ class WaggleServer:
                     }
                 ),
             ),
-            types.Tool(
-                name="build_context",
-                description=(
-                    "Recursively retrieves and compresses relevant Waggle memory for the current task, "
-                    "using graph, hybrid, transcript, update, and conflict-aware retrieval. "
-                    "Decomposes the query into targeted subqueries, expands the graph around key nodes, "
-                    "resolves contradictions and superseded memories, and returns a compact context pack "
-                    "under a configurable token budget. "
-                    "Aliases: recursive_context, assemble_context, rlm_context."
-                ),
-                inputSchema=_object_input_schema(
-                    {
-                        "query": {
-                            "type": "string",
-                            "description": "Current user task or question to build context for.",
-                        },
-                        **_scope_properties(),
-                        "token_budget": {
-                            "type": "integer",
-                            "default": 1200,
-                            "description": "Maximum token budget for the context pack (approximate).",
-                        },
-                        "depth": {
-                            "type": "integer",
-                            "default": 2,
-                            "minimum": 0,
-                            "description": "Graph expansion depth around retrieved nodes.",
-                        },
-                        "max_subqueries": {
-                            "type": "integer",
-                            "default": 6,
-                            "minimum": 1,
-                            "description": "Maximum number of decomposed subqueries to run.",
-                        },
-                        "include_evidence": {
-                            "type": "boolean",
-                            "default": True,
-                            "description": "Whether to include verbatim transcript evidence in the context pack.",
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["fast", "balanced", "deep"],
-                            "default": "balanced",
-                            "description": (
-                                "Retrieval depth mode: "
-                                "'fast' runs fewer subqueries for low latency; "
-                                "'balanced' is the default; "
-                                "'deep' adds extra subqueries for thorough coverage."
-                            ),
-                        },
-                    },
-                    required=["query"],
-                ),
+            *(
+                [
+                    types.Tool(
+                        name="build_context",
+                        description=(
+                            "Recursively retrieves and compresses relevant Waggle memory for the current task, "
+                            "using graph, hybrid, transcript, update, and conflict-aware retrieval. "
+                            "Decomposes the query into targeted subqueries, expands the graph around key nodes, "
+                            "resolves contradictions and superseded memories, and returns a compact context pack "
+                            "under a configurable token budget. "
+                            "Aliases: recursive_context, assemble_context, rlm_context."
+                        ),
+                        inputSchema=_object_input_schema(
+                            {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Current user task or question to build context for.",
+                                },
+                                **_scope_properties(),
+                                "token_budget": {
+                                    "type": "integer",
+                                    "default": 1200,
+                                    "description": "Maximum token budget for the context pack (approximate).",
+                                },
+                                "depth": {
+                                    "type": "integer",
+                                    "default": 2,
+                                    "minimum": 0,
+                                    "description": "Graph expansion depth around retrieved nodes.",
+                                },
+                                "max_subqueries": {
+                                    "type": "integer",
+                                    "default": 6,
+                                    "minimum": 1,
+                                    "description": "Maximum number of decomposed subqueries to run.",
+                                },
+                                "include_evidence": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": "Whether to include verbatim transcript evidence in the context pack.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["fast", "balanced", "deep"],
+                                    "default": "balanced",
+                                    "description": (
+                                        "Retrieval depth mode: "
+                                        "'fast' runs fewer subqueries for low latency; "
+                                        "'balanced' is the default; "
+                                        "'deep' adds extra subqueries for thorough coverage."
+                                    ),
+                                },
+                            },
+                            required=["query"],
+                        ),
+                    )
+                ]
+                if RECURSIVE_CONTEXT_ENABLED
+                else []
             ),
         ]
 
@@ -1505,6 +1512,10 @@ class WaggleServer:
                     canonical_name, default_args = _TOOL_ALIASES[name]
                     arguments = {**default_args, **arguments}
                     name = canonical_name
+                if name == "build_context" and not RECURSIVE_CONTEXT_ENABLED:
+                    return self._error_result(
+                        ValueError("build_context is disabled by WAGGLE_RECURSIVE_CONTEXT_ENABLED=false.")
+                    )
                 LOGGER.info("tool_call_started")
                 if name == "store_node":
                     store_result = graph.add_node(
@@ -3355,6 +3366,7 @@ Core graph workflow
 
 4. Export / handoff  (git-vocabulary)
    - commit                : snapshot memory to a portable .abhi file (waggle commit)
+   - checkpoint-context    : scoped handoff checkpoint for session/app switches
    - pull                  : load a .abhi file into the graph (waggle pull)
    - push                  : upload to Google Drive (waggle push)
    - diff                  : compare two .abhi files (waggle diff)
@@ -3398,6 +3410,9 @@ Common workflows
 - Export a handoff bundle:
   waggle-mcp export-context-bundle --mode query --query "why did we choose PostgreSQL?"
 
+- Checkpoint the current context before switching sessions/apps:
+  waggle-mcp checkpoint-context --project MCP --session-id thread-123 --output ./handoff.abhi
+
 - Edit memory as markdown:
   waggle-mcp export-markdown-vault --root-path ./vault
   waggle-mcp import-markdown-vault --root-path ./vault
@@ -3418,6 +3433,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("serve", help="Run the MCP server using the configured stdio or HTTP transport.")
+    plus = subparsers.add_parser(
+        "plus",
+        help="Show Waggle Plus detection status for this installation.",
+        description=(
+            "Inspect whether the optional proprietary Waggle Plus extension is installed. "
+            "Core remains fully usable when Plus is absent."
+        ),
+    )
+    plus.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
     graph_editor = subparsers.add_parser(
         "edit-graph",
         help="Launch the visual graph editor in a browser window.",
@@ -3506,6 +3530,29 @@ def _build_parser() -> argparse.ArgumentParser:
     commit_abhi.add_argument("--redact", dest="redact_patterns", action="append", default=[])
     commit_abhi.add_argument("--passphrase-env", default="")
     commit_abhi.add_argument("--force", action="store_true", help="Commit even if transcript secret scan finds likely credentials or tokens.")
+
+    checkpoint_context = subparsers.add_parser(
+        "checkpoint-context",
+        help="Create a scoped .abhi checkpoint for context-switch handoff.",
+        description=(
+            "Checkpoint the current project/session context to a portable .abhi file before switching "
+            "sessions or apps. This is a thin wrapper around the existing scoped export flow: keep SQLite "
+            "as the live store, use .abhi as the portable handoff artifact."
+        ),
+    )
+    checkpoint_context.add_argument("--output", dest="output_path", default=None)
+    checkpoint_context.add_argument("--project", default="")
+    checkpoint_context.add_argument("--agent-id", default="")
+    checkpoint_context.add_argument("--session-id", default="")
+    checkpoint_context.add_argument("--scope", choices=["project", "session", "all", "since-date"], default="")
+    checkpoint_context.add_argument("--since-date", default="")
+    checkpoint_context.add_argument("--include-embeddings", action=argparse.BooleanOptionalAction, default=True)
+    checkpoint_context.add_argument("--encrypt", action="store_true")
+    checkpoint_context.add_argument("--sign", action="store_true")
+    checkpoint_context.add_argument("--signing-key-dir", default="~/.waggle/keys")
+    checkpoint_context.add_argument("--redact", dest="redact_patterns", action="append", default=[])
+    checkpoint_context.add_argument("--passphrase-env", default="")
+    checkpoint_context.add_argument("--force", action="store_true", help="Checkpoint even if transcript secret scan finds likely credentials or tokens.")
 
     import_abhi = subparsers.add_parser(
         "import",
@@ -3936,6 +3983,43 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
             signing_key_dir=getattr(args, "signing_key_dir", "~/.waggle/keys"),
         )
         print(json.dumps(exported.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "checkpoint-context":
+        scope = getattr(args, "scope", "") or ""
+        if not scope:
+            if getattr(args, "session_id", ""):
+                scope = "session"
+            elif getattr(args, "project", ""):
+                scope = "project"
+            elif getattr(args, "since_date", ""):
+                scope = "since-date"
+            else:
+                scope = "all"
+        _assert_export_safe(
+            backend,
+            force=bool(getattr(args, "force", False)),
+            project=getattr(args, "project", ""),
+            agent_id=getattr(args, "agent_id", ""),
+            session_id=getattr(args, "session_id", ""),
+            scope=scope,
+            since_date=getattr(args, "since_date", ""),
+        )
+        exported = backend.export_abhi(
+            output_path=args.output_path,
+            project=getattr(args, "project", ""),
+            agent_id=getattr(args, "agent_id", ""),
+            session_id=getattr(args, "session_id", ""),
+            scope=scope,
+            since_date=getattr(args, "since_date", ""),
+            include_embeddings=bool(getattr(args, "include_embeddings", True)),
+            passphrase=_resolve_passphrase(args),
+            redact_patterns=list(getattr(args, "redact_patterns", []) or []),
+            sign=bool(getattr(args, "sign", False)),
+            signing_key_dir=getattr(args, "signing_key_dir", "~/.waggle/keys"),
+        )
+        payload = exported.model_dump(mode="json")
+        payload["checkpoint_scope"] = scope
+        print(json.dumps(payload, indent=2))
         return 0
     if args.command == "import":
         input_path = getattr(args, "input_path", None) or getattr(args, "input_path_flag", "")
@@ -4378,9 +4462,27 @@ def _run_doctor(config: AppConfig, *, fix: bool = False) -> int:
     else:
         _ok("normal mode: embedding loads in background. First semantic call may wait up to ~30 s.")
 
-    # ── 6. Windows stdout encoding ───────────────────────────────────────────
+    # ── 6. Waggle Plus detection ─────────────────────────────────────────────
+    print(_c(_BOLD, "\n[6] Waggle Plus"))
+    plus_status = detect_plus()
+    print(f"  Module name: {plus_status.module_name}")
+    if not plus_status.enabled:
+        print(f"  Status: disabled ({plus_status.message})")
+    elif plus_status.installed:
+        version_text = plus_status.version or "unknown"
+        _ok(f"Detected Waggle Plus {version_text}")
+        if plus_status.capabilities:
+            print(f"  Capabilities: {', '.join(plus_status.capabilities)}")
+        ok_items.append("Waggle Plus module detected")
+    else:
+        print(f"  {_c(_CYAN, chr(0x2139))} {plus_status.message}")
+        if plus_status.import_error:
+            issues.append("Waggle Plus import failed; reinstall the private package when it becomes available.")
+            _fail(f"Import error: {plus_status.import_error}")
+
+    # ── 7. Windows stdout encoding ───────────────────────────────────────────
     if sys.platform == "win32":
-        print(_c(_BOLD, "\n[6] Windows stdout encoding"))
+        print(_c(_BOLD, "\n[7] Windows stdout encoding"))
         enc = getattr(sys.stdout, "encoding", "unknown")
         if enc.lower().replace("-", "") in ("utf8", "utf8"):
             _ok(f"stdout encoding: {enc}")
@@ -4393,8 +4495,8 @@ def _run_doctor(config: AppConfig, *, fix: bool = False) -> int:
             )
             issues.append(f"Windows stdout encoding is {enc!r} — set PYTHONUTF8=1 or use python -X utf8.")
 
-    # ── 7. Known gotchas ─────────────────────────────────────────────────────
-    print(_c(_BOLD, "\n[7] Known API gotchas"))
+    # ── 8. Known gotchas ─────────────────────────────────────────────────────
+    print(_c(_BOLD, "\n[8] Known API gotchas"))
     print(_DOCTOR_KNOWN_GOTCHAS)
 
     # ── Summary ──────────────────────────────────────────────────────────────
@@ -4409,6 +4511,31 @@ def _run_doctor(config: AppConfig, *, fix: bool = False) -> int:
         print(_c(_GREEN, f"All checks passed ({len(ok_items)} OK). Waggle looks healthy."))
         print()
         return 0
+
+
+def _run_plus_command(args: argparse.Namespace) -> int:
+    status = detect_plus()
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(status.as_dict(), indent=2))
+        return 0
+
+    print()
+    print(_c(_BOLD, "waggle-mcp plus"))
+    print(_c(_CYAN, "─" * 50))
+    print(f"  Module name: {status.module_name}")
+    print(f"  Detection enabled: {'yes' if status.enabled else 'no'}")
+    print(f"  Installed: {'yes' if status.installed else 'no'}")
+    print(f"  Status: {status.message}")
+    if status.version:
+        print(f"  Version: {status.version}")
+    if status.capabilities:
+        print(f"  Capabilities: {', '.join(status.capabilities)}")
+    if status.import_error:
+        print(f"  Import error: {status.import_error}")
+    if not status.installed:
+        print("  Distribution: Waggle Plus will ship as a separate private package when available.")
+    print()
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -4531,6 +4658,9 @@ def _run_ingest_transcript_handoff(config: AppConfig, args: argparse.Namespace) 
         output["json_path"] = result.json_path
         output["export_node_count"] = result.export_node_count
         output["export_edge_count"] = result.export_edge_count
+    if result.checkpoint_path:
+        output["checkpoint_path"] = result.checkpoint_path
+        output["checkpoint_scope"] = result.checkpoint_scope
 
     print(json.dumps(output, indent=2))
     return 0
@@ -5348,6 +5478,8 @@ def main() -> None:
     if command == "features":
         print(_FEATURES_GUIDE)
         return
+    if command == "plus":
+        sys.exit(_run_plus_command(args))
     if command == "doctor":
         # Doctor only needs the config — not a live backend connection.
         config = AppConfig.from_env()

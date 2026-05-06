@@ -4999,6 +4999,12 @@ class MemoryGraph:
                     result.json_path = _export.get("json_path")
                     result.export_node_count = _export.get("node_count", 0)
                     result.export_edge_count = _export.get("edge_count", 0)
+                checkpoint = self._export_transcript_handoff_checkpoint(
+                    payload=payload,
+                    output_path=output_path,
+                )
+                result.checkpoint_path = checkpoint.get("checkpoint_path")
+                result.checkpoint_scope = checkpoint.get("checkpoint_scope", "")
                 return result
 
             # Step 3: Load the FULL session transcript from the DB ordered by turn_index.
@@ -5085,6 +5091,12 @@ class MemoryGraph:
             else:
                 result.export_skipped = True
                 result.export_skipped_reason = "no_nodes_in_session"
+            checkpoint = self._export_transcript_handoff_checkpoint(
+                payload=payload,
+                output_path=output_path,
+            )
+            result.checkpoint_path = checkpoint.get("checkpoint_path")
+            result.checkpoint_scope = checkpoint.get("checkpoint_scope", "")
         return result
 
     def _maybe_export_bundle(
@@ -5120,6 +5132,29 @@ class MemoryGraph:
             "json_path": exported.json_path,
             "node_count": exported.node_count,
             "edge_count": exported.edge_count,
+        }
+
+    def _export_transcript_handoff_checkpoint(
+        self,
+        *,
+        payload: TranscriptIngestionInput,
+        output_path: str | None,
+    ) -> dict[str, Any]:
+        checkpoint_output_path: str | None = None
+        if output_path:
+            checkpoint_output_path = str(Path(output_path).with_suffix(".abhi"))
+
+        exported = self.export_abhi(
+            output_path=checkpoint_output_path,
+            project=payload.project,
+            agent_id=payload.agent_id,
+            session_id=payload.session_id,
+            scope="session",
+            include_embeddings=True,
+        )
+        return {
+            "checkpoint_path": exported.output_path,
+            "checkpoint_scope": "session",
         }
 
     def graph_diff(self, *, since: str = "24h") -> GraphDiffResult:

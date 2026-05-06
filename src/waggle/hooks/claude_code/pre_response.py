@@ -16,7 +16,6 @@ Timeout: 5 seconds.
 from __future__ import annotations
 
 import json
-import os
 import re
 import signal
 import sys
@@ -59,6 +58,24 @@ def _is_concrete_task(prompt: str) -> bool:
     return bool(_TASK_PATTERN.search(prompt)) and len(prompt.split()) >= 3
 
 
+def _checkpoint_path(
+    *,
+    config: Any,
+    project: str,
+    session_id: str,
+    explicit_path: str = "",
+) -> Path | None:
+    if explicit_path.strip():
+        return Path(explicit_path).expanduser()
+    if not session_id.strip():
+        return None
+    export_root = Path(config.export_dir).expanduser() if getattr(config, "export_dir", None) else Path(config.db_path).expanduser().parent
+    checkpoint_root = export_root / "checkpoints"
+    scope_parts = [project.strip() or "default-project", session_id.strip() or "default-session"]
+    safe_parts = ["".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in part) for part in scope_parts]
+    return checkpoint_root.joinpath(*safe_parts).with_suffix(".abhi")
+
+
 def main() -> None:
     # Set up timeout
     if hasattr(signal, "SIGALRM"):
@@ -73,6 +90,9 @@ def main() -> None:
         payload: dict[str, Any] = json.loads(raw)
         prompt: str = payload.get("prompt", "") or ""
         session_id: str = str(payload.get("session_id", "") or "")
+        project: str = str(payload.get("project", "") or "")
+        agent_id: str = str(payload.get("agent_id", "") or "")
+        explicit_checkpoint_path: str = str(payload.get("checkpoint_path", "") or "")
 
         if not prompt.strip():
             _silent_exit()
@@ -93,43 +113,76 @@ def main() -> None:
             tenant_id=config.default_tenant_id,
         )
 
+        checkpoint_path = _checkpoint_path(
+            config=config,
+            project=project,
+            session_id=session_id,
+            explicit_path=explicit_checkpoint_path,
+        )
         context_text = ""
 
-        # Route: concrete task → build_context; session start → prime_context
-        if RECURSIVE_CONTEXT_ENABLED and _is_concrete_task(prompt):
-            try:
-                controller = RecursiveContextController(graph=graph)
-                ctx_result = controller.build_context(
-                    query=prompt[:500],
-                    session_id=session_id,
-                    token_budget=800,
-                    depth=1,
-                    max_subqueries=4,
-                    mode="fast",
-                )
-                context_text = ctx_result.context_pack or ""
-            except Exception:
-                context_text = ""
-
-        # Fallback 1: prime_context
-        if not context_text:
-            try:
-                result = graph.prime_context(session_id=session_id)
-                context_text = result.summary if result.summary else ""
-            except Exception:
-                context_text = ""
-
-        # Fallback 2: query_graph
-        if not context_text:
-            try:
-                qr = graph.query(query=prompt[:500], max_nodes=8, max_depth=1)
-                if qr.nodes:
-                    context_text = "\n".join(
-                        f"[{n.node_type.value}] {n.label}: {n.content[:200]}"
-                        for n in qr.nodes[:5]
+        def load_from_db(*, include_query_fallback: bool) -> str:
+            local_context_text = ""
+            if RECURSIVE_CONTEXT_ENABLED and _is_concrete_task(prompt):
+                try:
+                    controller = RecursiveContextController(graph=graph)
+                    ctx_result = controller.build_context(
+                        query=prompt[:500],
+                        project=project,
+                        agent_id=agent_id,
+                        session_id=session_id,
+                        token_budget=800,
+                        depth=1,
+                        max_subqueries=4,
+                        mode="fast",
                     )
+                    local_context_text = ctx_result.context_pack or ""
+                except Exception:
+                    local_context_text = ""
+
+            if not local_context_text:
+                try:
+                    result = graph.prime_context(
+                        project=project,
+                        agent_id=agent_id,
+                        session_id=session_id,
+                    )
+                    local_context_text = result.summary if result.summary and result.nodes else ""
+                except Exception:
+                    local_context_text = ""
+
+            if not local_context_text and include_query_fallback:
+                try:
+                    qr = graph.query(
+                        query=prompt[:500],
+                        max_nodes=8,
+                        max_depth=1,
+                        project=project,
+                        agent_id=agent_id,
+                        session_id=session_id,
+                    )
+                    if qr.nodes:
+                        local_context_text = "\n".join(
+                            f"[{n.node_type.value}] {n.label}: {n.content[:200]}"
+                            for n in qr.nodes[:5]
+                        )
+                except Exception:
+                    local_context_text = ""
+            return local_context_text
+
+        context_text = load_from_db(include_query_fallback=False)
+
+        if not context_text and checkpoint_path is not None and checkpoint_path.exists():
+            try:
+                graph.import_abhi(
+                    input_path=checkpoint_path,
+                    merge_strategy="skip-existing",
+                )
+                context_text = load_from_db(include_query_fallback=True)
             except Exception:
                 context_text = ""
+        elif not context_text:
+            context_text = load_from_db(include_query_fallback=True)
 
         if context_text:
             print(json.dumps({

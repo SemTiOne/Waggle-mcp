@@ -19,9 +19,9 @@ Three hook scripts are installed under `src/waggle/hooks/claude_code/`:
 
 | Script | Claude Code event | What it does |
 |--------|-------------------|--------------|
-| `pre_response.py` | `UserPromptSubmit` | Calls `prime_context` or `query_graph` and injects relevant memory as a system reminder before Claude responds |
-| `post_response.py` | `Stop` | Calls `observe_conversation` with the last user/assistant turn after Claude finishes |
-| `pre_compact.py` | `PreCompact` | Calls `ingest_transcript_handoff` to preserve durable info before context compression |
+| `pre_response.py` | `UserPromptSubmit` | Tries scoped DB recall first; if the scope is cold and a session checkpoint exists, imports the `.abhi` checkpoint and retries before responding |
+| `post_response.py` | `Stop` | Applies Waggle's durable-ingest policy, then calls `observe_conversation` only for turns worth remembering |
+| `pre_compact.py` | `PreCompact` | Calls `ingest_transcript_handoff` to preserve durable info before context compression and emit a session-scoped `.abhi` checkpoint under the local checkpoints directory |
 
 ### Installation
 
@@ -54,7 +54,13 @@ Each hook script:
 
 ### Security
 
-`post_response.py` scans turn text for likely secrets (API keys, tokens, passwords) before calling `observe_conversation`. If secrets are detected, the turn is skipped silently.
+`post_response.py` scans turn text for likely secrets (API keys, tokens, passwords) before any ingestion work. If secrets are detected, the turn is skipped silently.
+
+The hook is also policy-gated:
+- short acknowledgements are skipped
+- low-value chatter is skipped
+- durable turns are ingested
+- hook execution still always exits `0`
 
 ### Manual verification
 

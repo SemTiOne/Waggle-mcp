@@ -3,7 +3,8 @@
 Waggle Claude Code hook: Stop (post-response).
 
 Triggered after Claude finishes responding.
-Calls observe_conversation to persist the last user/assistant turn.
+Calls observe_conversation to persist the last user/assistant turn when the
+turn matches Waggle's durable-ingest policy.
 
 Protocol: reads JSON from stdin, writes JSON to stdout.
 Always exits 0 — never blocks the user's session.
@@ -98,9 +99,26 @@ def main() -> None:
         from waggle.config import AppConfig
         from waggle.embeddings import EmbeddingModel
         from waggle.graph import MemoryGraph
+        from waggle.orchestrator import ConversationTurn, MemoryPolicy, MemoryScope
 
         config = AppConfig.from_env()
         if config.backend != "sqlite":
+            _silent_exit()
+
+        scope = MemoryScope(
+            tenant_id=config.default_tenant_id,
+            project=str(payload.get("project", "") or ""),
+            agent_id=str(payload.get("agent_id", "") or ""),
+            session_id=session_id,
+        )
+        plan = MemoryPolicy().plan_ingest(
+            ConversationTurn(
+                user_message=user_msg[:4000],
+                assistant_response=assistant_msg[:4000],
+            ),
+            scope,
+        )
+        if not plan.should_ingest:
             _silent_exit()
 
         graph = MemoryGraph(
@@ -112,6 +130,8 @@ def main() -> None:
         graph.observe_conversation(
             user_message=user_msg[:4000],
             assistant_response=assistant_msg[:4000],
+            project=scope.project,
+            agent_id=scope.agent_id,
             session_id=session_id,
         )
 

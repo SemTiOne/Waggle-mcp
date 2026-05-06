@@ -15,8 +15,21 @@
   <a href="https://pypi.org/project/waggle-mcp"><img src="https://img.shields.io/pypi/v/waggle-mcp?color=39d5cf&label=pypi" alt="PyPI"/></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+"/>
   <img src="https://img.shields.io/badge/MCP-compatible-brightgreen" alt="MCP compatible"/>
+  <img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="Apache-2.0"/>
   <img src="https://img.shields.io/badge/embeddings-local%2C%20no%20API%20key-orange" alt="Local embeddings"/>
 </p>
+
+---
+
+## Core And Plus
+
+This repository is **Waggle Core**.
+
+- `Waggle Core` is public, Apache-2.0 licensed, and available on GitHub + PyPI.
+- `Waggle Plus` is planned as the paid layer for advanced reasoning and team features.
+- `Waggle Plus` is **coming soon** and is not available for purchase yet.
+
+See [COMMERCIAL.md](COMMERCIAL.md) for the current product split.
 
 ---
 
@@ -66,6 +79,37 @@ The core difference from flat note storage or chunked RAG is the graph structure
 | Flat notes, no structure | Typed nodes and edges: decisions, reasons, contradictions |
 | "What changed?" requires replaying logs | Temporal queries, diffs, and conflict resolution are first-class |
 | Contradictions silently overwrite history | Both positions preserved, contradiction edge explicit |
+
+### What Is In Core Today
+
+Waggle Core is the open-source local memory foundation:
+
+- SQLite-backed graph memory
+- MCP server integration
+- CLI setup and doctor flows
+- local embeddings or deterministic fallback
+- graph querying, observation, and context priming
+- import/export and graph inspection utilities
+
+### What Is Planned For Plus
+
+Waggle Plus is the future paid layer and is not shipping yet.
+
+Planned areas include:
+
+- advanced reranking
+- contradiction intelligence
+- premium context-building workflows
+- higher official-binary usage limits
+- team and enterprise capabilities
+
+Core already exposes the extension boundary for this split. When the paid package exists, the public CLI will detect it as an optional private module:
+
+```bash
+waggle-mcp plus
+```
+
+The intended package name is `waggle_plus`, distributed separately from the public `waggle-mcp` PyPI release.
 
 ---
 
@@ -575,7 +619,7 @@ waggle-mcp import-graph-backup --input-path my_memory.json
 | `waggle-mcp uninstall-hooks` | Remove the waggle-managed hooks block from Claude Code settings. |
 | `waggle-mcp export-context-bundle` | Export a portable Markdown/JSON context pack. |
 | `waggle-mcp export-markdown-vault` | Export the graph as an Obsidian-style vault. |
-| `waggle-mcp ingest-transcript-handoff` | Ingest a rollover transcript and export a handoff bundle. |
+| `waggle-mcp ingest-transcript-handoff` | Ingest a rollover transcript, export a handoff bundle, and emit a session `.abhi` checkpoint. |
 | `waggle-mcp benchmark-oolong` | Run OOLONG retrieval evaluation and emit a JSON report. |
 
 ### `WAGGLE_STARTUP_MODE`
