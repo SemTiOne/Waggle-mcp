@@ -67,6 +67,17 @@ VS Code extension features:
 - opens Graph Studio
 - exports Waggle memory from the editor
 
+Claude distribution:
+
+- Claude Code does not use an `.mcpb` bundle. Users add Waggle directly as an MCP server:
+
+```bash
+pipx install waggle-mcp
+claude mcp add --transport stdio waggle -- waggle-mcp serve --transport stdio
+```
+
+- Claude Desktop uses the `claude-desktop-extension.mcpb` bundle, which can be distributed through GitHub Releases.
+
 Manual MCP config:
 
 ```json
