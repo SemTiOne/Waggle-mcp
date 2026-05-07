@@ -57,6 +57,10 @@ Recommended:
 - Claude: use [docs/install/claude-code.md](./docs/install/claude-code.md) or [docs/install/claude-desktop.md](./docs/install/claude-desktop.md)
 - Developers: `pipx install waggle-mcp`
 
+Benchmark:
+
+- LongMemEval 500-case retrieval-only: `92.6% R@5`, `76.2% Exact@5` for `graph_raw` retrieval ([artifact](./tests/artifacts/longmemeval_500_summary.md))
+
 VS Code extension features:
 
 - one-click `Enable for this Workspace` onboarding
