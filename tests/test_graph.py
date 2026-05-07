@@ -226,6 +226,82 @@ def test_update_delete_and_stats(tmp_path: Path) -> None:
     assert graph.get_stats().total_nodes == 0
 
 
+def test_clear_session_removes_only_session_scoped_data(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.observe_conversation(
+        user_message="Use Redis for caching.",
+        assistant_response="Noted.",
+        project="alpha",
+        session_id="sess-a",
+    )
+    graph.observe_conversation(
+        user_message="Use Postgres for primary storage.",
+        assistant_response="Noted.",
+        project="alpha",
+        session_id="sess-b",
+    )
+
+    result = graph.clear_session(session_id="sess-a")
+
+    assert result.scope == "session"
+    assert result.session_id == "sess-a"
+    assert result.deleted_nodes >= 1
+    assert result.deleted_transcripts >= 2
+    assert graph.query(query="redis", project="alpha", session_id="sess-a", max_nodes=5).nodes == []
+    assert graph.query(query="postgres", project="alpha", session_id="sess-b", max_nodes=5).nodes
+
+
+def test_clear_project_removes_project_but_preserves_other_projects(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.add_node(
+        label="Alpha Cache",
+        content="Alpha uses Redis.",
+        node_type=NodeType.DECISION,
+        project="alpha",
+        session_id="sess-a",
+    )
+    graph.add_node(
+        label="Beta Queue",
+        content="Beta uses Kafka.",
+        node_type=NodeType.DECISION,
+        project="beta",
+        session_id="sess-b",
+    )
+    graph.observe_conversation(
+        user_message="Alpha uses Redis.",
+        assistant_response="Noted.",
+        project="alpha",
+        session_id="sess-a",
+    )
+
+    result = graph.clear_project(project="alpha")
+
+    assert result.scope == "project"
+    assert result.project == "alpha"
+    assert result.deleted_transcripts >= 2
+    assert result.deleted_context_windows >= 1
+    assert result.deleted_repos >= 1
+    assert graph.query(query="redis", project="alpha", max_nodes=5).nodes == []
+    assert graph.query(query="kafka", project="beta", max_nodes=5).nodes
+
+
+def test_clear_all_removes_graph_memory_data(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    graph.observe_conversation(
+        user_message="Use Redis for caching.",
+        assistant_response="Noted.",
+        project="alpha",
+        session_id="sess-a",
+    )
+
+    result = graph.clear_all()
+
+    assert result.scope == "all"
+    assert result.deleted_nodes >= 1
+    assert graph.get_stats().total_nodes == 0
+    assert graph.list_context_scopes().projects == []
+
+
 def test_exact_duplicate_nodes_are_reused_and_tags_are_merged(tmp_path: Path) -> None:
     graph = make_graph(tmp_path)
     first = graph.add_node(

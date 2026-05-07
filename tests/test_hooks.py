@@ -56,6 +56,77 @@ def _load_hook_module(name: str, filename: str):
     return mod
 
 
+def test_common_resolve_scope_infers_stable_project_from_repo_root(tmp_path: Path) -> None:
+    from waggle.config import AppConfig
+    from waggle.hooks.claude_code.common import resolve_scope
+
+    repo_root = tmp_path / "repo-a"
+    nested = repo_root / "src" / "feature"
+    (repo_root / ".git").mkdir(parents=True)
+    nested.mkdir(parents=True)
+    config = AppConfig(
+        backend="sqlite",
+        transport="stdio",
+        model_name="deterministic",
+        db_path=str(tmp_path / "memory.db"),
+        default_tenant_id="local-default",
+        http_host="127.0.0.1",
+        http_port=8080,
+        log_level="INFO",
+        rate_limit_rpm=120,
+        write_rate_limit_rpm=60,
+        max_concurrent_requests=8,
+        max_payload_bytes=1024 * 1024,
+        request_timeout_seconds=30,
+        export_dir=None,
+        neo4j_uri="",
+        neo4j_username="",
+        neo4j_password="",
+        neo4j_database="",
+    )
+
+    root_scope = resolve_scope({"cwd": str(repo_root), "session_id": "s1"}, config)
+    nested_scope = resolve_scope({"cwd": str(nested), "session_id": "s2"}, config)
+
+    assert root_scope["project"]
+    assert root_scope["project"] == nested_scope["project"]
+
+
+def test_common_resolve_scope_separates_different_repos(tmp_path: Path) -> None:
+    from waggle.config import AppConfig
+    from waggle.hooks.claude_code.common import resolve_scope
+
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    (repo_a / ".git").mkdir(parents=True)
+    (repo_b / ".git").mkdir(parents=True)
+    config = AppConfig(
+        backend="sqlite",
+        transport="stdio",
+        model_name="deterministic",
+        db_path=str(tmp_path / "memory.db"),
+        default_tenant_id="local-default",
+        http_host="127.0.0.1",
+        http_port=8080,
+        log_level="INFO",
+        rate_limit_rpm=120,
+        write_rate_limit_rpm=60,
+        max_concurrent_requests=8,
+        max_payload_bytes=1024 * 1024,
+        request_timeout_seconds=30,
+        export_dir=None,
+        neo4j_uri="",
+        neo4j_username="",
+        neo4j_password="",
+        neo4j_database="",
+    )
+
+    scope_a = resolve_scope({"cwd": str(repo_a), "session_id": "s1"}, config)
+    scope_b = resolve_scope({"cwd": str(repo_b), "session_id": "s2"}, config)
+
+    assert scope_a["project"] != scope_b["project"]
+
+
 # ── pre_response tests ────────────────────────────────────────────────────────
 
 def test_pre_response_empty_stdin(capsys: pytest.CaptureFixture) -> None:

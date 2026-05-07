@@ -49,18 +49,10 @@ from waggle.graph import MemoryGraph
 from waggle.graph_ui import render_graph_editor_html
 from waggle.logging_utils import configure_logging
 from waggle.metrics import MetricsRegistry
-from waggle.oolong_benchmark import evaluate_oolong
-from waggle.rlm import (
-    DEFAULT_WAGGLE_RLM_SYSTEM_PROMPT,
-    build_gemini_backend_kwargs,
-    build_groq_openai_backend_kwargs,
-    build_subprocess_response_fn,
-    run_gemini_one_shot,
-    run_groq_one_shot,
-)
 from waggle.models import (
     ApiKeyRecord,
     AuditEventRecord,
+    ClearScopeResult,
     ConflictEntry,
     ConflictListResult,
     ContextBundleExportResult,
@@ -1006,6 +998,58 @@ class WaggleServer:
                 ),
             ),
             types.Tool(
+                name="clear_session",
+                description=(
+                    "Delete all memory data for one session/context window stream, including nodes, transcripts, "
+                    "context windows, and connected edges. Requires confirm=true."
+                ),
+                inputSchema=_object_input_schema(
+                    {
+                        "session_id": {"type": "string", "description": "Session identifier to clear."},
+                        "confirm": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Must be true to perform the destructive clear operation.",
+                        },
+                    },
+                    required=["session_id"],
+                ),
+            ),
+            types.Tool(
+                name="clear_project",
+                description=(
+                    "Delete all memory data for one project/repository, including nodes, transcripts, repos, "
+                    "context windows, and connected edges. Requires confirm=true."
+                ),
+                inputSchema=_object_input_schema(
+                    {
+                        "project": {"type": "string", "description": "Project/repository scope to clear."},
+                        "confirm": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Must be true to perform the destructive clear operation.",
+                        },
+                    },
+                    required=["project"],
+                ),
+            ),
+            types.Tool(
+                name="clear_all",
+                description=(
+                    "Delete all graph memory data for the current tenant. Requires confirm=true. "
+                    "This does not remove API keys or tenant metadata."
+                ),
+                inputSchema=_object_input_schema(
+                    {
+                        "confirm": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Must be true to perform the destructive clear operation.",
+                        },
+                    }
+                ),
+            ),
+            types.Tool(
                 name="decompose_and_store",
                 description=(
                     "Break long or complex content into atomic memory nodes, store them automatically, and create inferred edges. "
@@ -1856,6 +1900,30 @@ class WaggleServer:
                         f"Deleted node '{node.label}' ({node.id}) and its connected edges.",
                         {"id": node.id, "label": node.label, "tenant_id": node.tenant_id},
                     )
+                elif name == "clear_session":
+                    self._require_clear_confirmation(arguments, "clear_session")
+                    cleared = graph.clear_session(session_id=arguments["session_id"])
+                    result = self._tool_result(
+                        f"Cleared session '{cleared.session_id}'. Deleted {cleared.deleted_nodes} node(s), "
+                        f"{cleared.deleted_edges} edge(s), and {cleared.deleted_transcripts} transcript record(s).",
+                        self._clear_scope_payload(cleared),
+                    )
+                elif name == "clear_project":
+                    self._require_clear_confirmation(arguments, "clear_project")
+                    cleared = graph.clear_project(project=arguments["project"])
+                    result = self._tool_result(
+                        f"Cleared project '{cleared.project}'. Deleted {cleared.deleted_nodes} node(s), "
+                        f"{cleared.deleted_edges} edge(s), and {cleared.deleted_transcripts} transcript record(s).",
+                        self._clear_scope_payload(cleared),
+                    )
+                elif name == "clear_all":
+                    self._require_clear_confirmation(arguments, "clear_all")
+                    cleared = graph.clear_all()
+                    result = self._tool_result(
+                        f"Cleared all graph memory data for tenant '{graph.tenant_id}'. Deleted {cleared.deleted_nodes} node(s), "
+                        f"{cleared.deleted_edges} edge(s), and {cleared.deleted_transcripts} transcript record(s).",
+                        self._clear_scope_payload(cleared),
+                    )
                 elif name == "decompose_and_store":
                     subgraph = graph.decompose_and_store(content=arguments["content"], context=arguments.get("context", ""))
                     result = self._tool_result(serialize_subgraph(subgraph), self._subgraph_payload(subgraph))
@@ -2206,6 +2274,12 @@ class WaggleServer:
             isError=True,
         )
 
+    @staticmethod
+    def _require_clear_confirmation(arguments: dict[str, Any], command_name: str) -> None:
+        if bool(arguments.get("confirm", False)):
+            return
+        raise ValidationFailure(f"{command_name} is destructive and requires confirm=true.")
+
     def _node_payload(self, node: Node) -> dict[str, Any]:
         return {
             "id": node.id,
@@ -2374,6 +2448,9 @@ class WaggleServer:
             "projects": result.projects,
             "session_ids": result.session_ids,
         }
+
+    def _clear_scope_payload(self, result: ClearScopeResult) -> dict[str, Any]:
+        return result.model_dump(mode="json")
 
     def _context_window_payload(self, window: ContextWindow) -> dict[str, Any]:
         return {
@@ -4091,6 +4168,26 @@ def _build_parser() -> argparse.ArgumentParser:
     checkpoint_context.add_argument("--passphrase-env", default="")
     checkpoint_context.add_argument("--force", action="store_true", help="Checkpoint even if transcript secret scan finds likely credentials or tokens.")
 
+    clear_session = subparsers.add_parser(
+        "clear-session",
+        help="Delete all graph memory data for one session.",
+    )
+    clear_session.add_argument("--session-id", required=True)
+    clear_session.add_argument("--yes", action="store_true", help="Confirm the destructive clear operation.")
+
+    clear_project = subparsers.add_parser(
+        "clear-project",
+        help="Delete all graph memory data for one project/repository scope.",
+    )
+    clear_project.add_argument("--project", required=True)
+    clear_project.add_argument("--yes", action="store_true", help="Confirm the destructive clear operation.")
+
+    clear_all = subparsers.add_parser(
+        "clear-all",
+        help="Delete all graph memory data for the current tenant.",
+    )
+    clear_all.add_argument("--yes", action="store_true", help="Confirm the destructive clear operation.")
+
     import_abhi = subparsers.add_parser(
         "import",
         help="Import a portable memory file into the active backend. (alias: pull <local-file>)",
@@ -4244,34 +4341,6 @@ def _build_parser() -> argparse.ArgumentParser:
     share_abhi.add_argument("--client-secret-path", default="~/.waggle/google-client-secret.json")
     share_abhi.add_argument("--token-path", default="")
     share_abhi.add_argument("--open-browser", action=argparse.BooleanOptionalAction, default=True)
-
-    benchmark_oolong = subparsers.add_parser(
-        "benchmark-oolong",
-        help="Run OOLONG long-context evaluation over Waggle retrieval.",
-        description=(
-            "Load a local OOLONG JSON/JSONL export, index context windows into Waggle, "
-            "retrieve scoped context per question, and optionally score an external LLM over that retrieved bundle."
-        ),
-    )
-    benchmark_oolong.add_argument("dataset_path")
-    benchmark_oolong.add_argument("--dataset-kind", choices=["auto", "real", "synth", "custom"], default="auto")
-    benchmark_oolong.add_argument("--context-field", default="auto")
-    benchmark_oolong.add_argument("--eval-mode", choices=["retrieval_only", "waggle_llm", "waggle_rlm"], default="retrieval_only")
-    benchmark_oolong.add_argument("--llm-command", default="")
-    benchmark_oolong.add_argument("--llm-backend", choices=["command", "groq", "gemini"], default="command")
-    benchmark_oolong.add_argument("--llm-model", default="llama-3.3-70b-versatile")
-    benchmark_oolong.add_argument("--llm-api-key-env", default="GROQ_API_KEY")
-    benchmark_oolong.add_argument("--llm-max-tokens", type=int, default=512)
-    benchmark_oolong.add_argument("--llm-timeout-seconds", type=float, default=60.0)
-    benchmark_oolong.add_argument("--retrieval-mode", choices=["graph", "hybrid", "verbatim", "aggregate"], default="graph")
-    benchmark_oolong.add_argument("--max-nodes", type=int, default=8)
-    benchmark_oolong.add_argument("--max-depth", type=int, default=1)
-    benchmark_oolong.add_argument("--chunk-lines", type=int, default=12)
-    benchmark_oolong.add_argument("--chunk-overlap-lines", type=int, default=3)
-    benchmark_oolong.add_argument("--rlm-system-prompt-file", default="")
-    benchmark_oolong.add_argument("--rlm-max-iterations", type=int, default=6)
-    benchmark_oolong.add_argument("--limit", type=int, default=None)
-    benchmark_oolong.add_argument("--output", default="")
 
     export_context_bundle = subparsers.add_parser(
         "export-context-bundle",
@@ -4652,6 +4721,24 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
         payload["checkpoint_scope"] = scope
         print(json.dumps(payload, indent=2))
         return 0
+    if args.command == "clear-session":
+        if not bool(getattr(args, "yes", False)):
+            raise ValidationFailure("clear-session is destructive and requires --yes.")
+        cleared = backend.clear_session(session_id=args.session_id)
+        print(json.dumps(cleared.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "clear-project":
+        if not bool(getattr(args, "yes", False)):
+            raise ValidationFailure("clear-project is destructive and requires --yes.")
+        cleared = backend.clear_project(project=args.project)
+        print(json.dumps(cleared.model_dump(mode="json"), indent=2))
+        return 0
+    if args.command == "clear-all":
+        if not bool(getattr(args, "yes", False)):
+            raise ValidationFailure("clear-all is destructive and requires --yes.")
+        cleared = backend.clear_all()
+        print(json.dumps(cleared.model_dump(mode="json"), indent=2))
+        return 0
     if args.command == "import":
         input_path = getattr(args, "input_path", None) or getattr(args, "input_path_flag", "")
         imported = backend.import_abhi(
@@ -4809,70 +4896,6 @@ def _run_admin_command(config: AppConfig, args: argparse.Namespace) -> int:
         )
         shared = share_drive_file(file_id=remote_file_id, credentials=credentials)
         print(json.dumps(shared.model_dump(mode="json"), indent=2))
-        return 0
-    if args.command == "benchmark-oolong":
-        llm_answerer = None
-        rlm_backend = "openai"
-        rlm_backend_kwargs: dict[str, Any] | None = None
-        rlm_mock_response_fn = None
-        if args.llm_backend == "command":
-            if args.llm_command:
-                from waggle.oolong_benchmark import run_subprocess_llm
-
-                llm_answerer = lambda prompt: run_subprocess_llm(prompt, command_template=args.llm_command)
-                rlm_mock_response_fn = build_subprocess_response_fn(args.llm_command)
-        elif args.llm_backend == "groq":
-            api_key = os.environ.get(args.llm_api_key_env, "").strip()
-            if not api_key:
-                raise ValidationFailure(f"{args.llm_api_key_env} is required for --llm-backend groq.")
-            rlm_backend_kwargs = build_groq_openai_backend_kwargs(api_key=api_key, model_name=args.llm_model)
-            llm_answerer = lambda prompt: run_groq_one_shot(
-                prompt=prompt,
-                api_key=api_key,
-                model_name=args.llm_model,
-                max_tokens=args.llm_max_tokens,
-                timeout_seconds=args.llm_timeout_seconds,
-            )
-        elif args.llm_backend == "gemini":
-            api_key = os.environ.get(args.llm_api_key_env, "").strip()
-            if not api_key:
-                raise ValidationFailure(f"{args.llm_api_key_env} is required for --llm-backend gemini.")
-            rlm_backend = "gemini"
-            rlm_backend_kwargs = build_gemini_backend_kwargs(api_key=api_key, model_name=args.llm_model)
-            llm_answerer = lambda prompt: run_gemini_one_shot(
-                prompt=prompt,
-                api_key=api_key,
-                model_name=args.llm_model,
-                timeout_seconds=args.llm_timeout_seconds,
-            )
-
-        rlm_system_prompt = DEFAULT_WAGGLE_RLM_SYSTEM_PROMPT
-        if args.rlm_system_prompt_file:
-            rlm_system_prompt = Path(args.rlm_system_prompt_file).read_text(encoding="utf-8")
-
-        report = evaluate_oolong(
-            args.dataset_path,
-            dataset_kind=args.dataset_kind,
-            context_field=args.context_field,
-            embedding_model=EmbeddingModel(config.model_name),
-            eval_mode=args.eval_mode,
-            retrieval_mode=args.retrieval_mode,
-            max_nodes=args.max_nodes,
-            max_depth=args.max_depth,
-            chunk_lines=args.chunk_lines,
-            chunk_overlap_lines=args.chunk_overlap_lines,
-            limit=args.limit,
-            llm_answerer=llm_answerer,
-            rlm_system_prompt=rlm_system_prompt,
-            rlm_max_iterations=args.rlm_max_iterations,
-            rlm_backend=rlm_backend,
-            rlm_backend_kwargs=rlm_backend_kwargs,
-            rlm_mock_response_fn=rlm_mock_response_fn,
-        )
-        payload = report.to_dict()
-        if args.output:
-            Path(args.output).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(json.dumps(payload, indent=2))
         return 0
     if args.command == "export-context-bundle":
         exported = backend.export_context_bundle(

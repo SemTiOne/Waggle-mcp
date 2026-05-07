@@ -130,6 +130,7 @@ from waggle.models import (
     TopicCluster,
     TopicResult,
     CanonicalizeResult,
+    ClearScopeResult,
     DedupCandidatePair,
     DedupCandidatesResult,
     utc_now,
@@ -4106,6 +4107,191 @@ class MemoryGraph:
                 connection=connection,
             )
             return node
+
+    def clear_session(self, *, session_id: str) -> ClearScopeResult:
+        normalized_session = session_id.strip()
+        if not normalized_session:
+            raise ValueError("session_id is required.")
+        with self._lock, self._connect() as connection:
+            result = self._clear_scope_rows(connection, scope="session", session_id=normalized_session)
+            self.emit_audit_event(
+                event_type="graph.scope_cleared",
+                resource_type="session",
+                resource_id=normalized_session,
+                action="delete",
+                metadata=result.model_dump(mode="json"),
+                connection=connection,
+            )
+            return result
+
+    def clear_project(self, *, project: str) -> ClearScopeResult:
+        normalized_project = project.strip()
+        if not normalized_project:
+            raise ValueError("project is required.")
+        with self._lock, self._connect() as connection:
+            result = self._clear_scope_rows(connection, scope="project", project=normalized_project)
+            self.emit_audit_event(
+                event_type="graph.scope_cleared",
+                resource_type="project",
+                resource_id=normalized_project,
+                action="delete",
+                metadata=result.model_dump(mode="json"),
+                connection=connection,
+            )
+            return result
+
+    def clear_all(self) -> ClearScopeResult:
+        with self._lock, self._connect() as connection:
+            result = self._clear_scope_rows(connection, scope="all")
+            self.emit_audit_event(
+                event_type="graph.scope_cleared",
+                resource_type="tenant",
+                resource_id=self.tenant_id,
+                action="delete",
+                metadata=result.model_dump(mode="json"),
+                connection=connection,
+            )
+            return result
+
+    def _clear_scope_rows(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        scope: str,
+        project: str = "",
+        session_id: str = "",
+    ) -> ClearScopeResult:
+        result = ClearScopeResult(scope=scope, project=project, session_id=session_id)
+        if scope == "all":
+            node_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM nodes WHERE tenant_id = ?",
+                    (self.tenant_id,),
+                ).fetchall()
+            ]
+            window_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM context_windows WHERE tenant_id = ?",
+                    (self.tenant_id,),
+                ).fetchall()
+            ]
+            repo_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM repos WHERE tenant_id = ?",
+                    (self.tenant_id,),
+                ).fetchall()
+            ]
+            result.deleted_graph_ui_rows = connection.execute(
+                "DELETE FROM graph_ui_state WHERE tenant_id = ?",
+                (self.tenant_id,),
+            ).rowcount
+            result.deleted_transcripts = connection.execute(
+                "DELETE FROM transcript_records WHERE tenant_id = ?",
+                (self.tenant_id,),
+            ).rowcount
+        elif scope == "project":
+            repo_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM repos WHERE tenant_id = ? AND name = ?",
+                    (self.tenant_id, project),
+                ).fetchall()
+            ]
+            window_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    """
+                    SELECT cw.id
+                    FROM context_windows cw
+                    JOIN repos r ON r.id = cw.repo_id
+                    WHERE cw.tenant_id = ? AND r.name = ?
+                    """,
+                    (self.tenant_id, project),
+                ).fetchall()
+            ]
+            node_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM nodes WHERE tenant_id = ? AND project = ?",
+                    (self.tenant_id, project),
+                ).fetchall()
+            ]
+            result.deleted_graph_ui_rows = connection.execute(
+                "DELETE FROM graph_ui_state WHERE tenant_id = ? AND project = ?",
+                (self.tenant_id, project),
+            ).rowcount
+            result.deleted_transcripts = connection.execute(
+                "DELETE FROM transcript_records WHERE tenant_id = ? AND project = ?",
+                (self.tenant_id, project),
+            ).rowcount
+        elif scope == "session":
+            repo_ids = []
+            window_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM context_windows WHERE tenant_id = ? AND session_id = ?",
+                    (self.tenant_id, session_id),
+                ).fetchall()
+            ]
+            node_ids = [
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM nodes WHERE tenant_id = ? AND session_id = ?",
+                    (self.tenant_id, session_id),
+                ).fetchall()
+            ]
+            result.deleted_graph_ui_rows = connection.execute(
+                "DELETE FROM graph_ui_state WHERE tenant_id = ? AND session_id = ?",
+                (self.tenant_id, session_id),
+            ).rowcount
+            result.deleted_transcripts = connection.execute(
+                "DELETE FROM transcript_records WHERE tenant_id = ? AND session_id = ?",
+                (self.tenant_id, session_id),
+            ).rowcount
+        else:
+            raise ValueError(f"Unsupported clear scope: {scope}")
+
+        if node_ids:
+            placeholders = ", ".join("?" for _ in node_ids)
+            result.deleted_edges = connection.execute(
+                f"""
+                DELETE FROM edges
+                WHERE tenant_id = ? AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
+                """,
+                (self.tenant_id, *node_ids, *node_ids),
+            ).rowcount
+            result.deleted_nodes = connection.execute(
+                f"DELETE FROM nodes WHERE tenant_id = ? AND id IN ({placeholders})",
+                (self.tenant_id, *node_ids),
+            ).rowcount
+
+        if window_ids:
+            placeholders = ", ".join("?" for _ in window_ids)
+            result.deleted_context_window_edges = connection.execute(
+                f"""
+                DELETE FROM context_window_edges
+                WHERE tenant_id = ? AND (source_window_id IN ({placeholders}) OR target_window_id IN ({placeholders}))
+                """,
+                (self.tenant_id, *window_ids, *window_ids),
+            ).rowcount
+            result.deleted_context_windows = connection.execute(
+                f"DELETE FROM context_windows WHERE tenant_id = ? AND id IN ({placeholders})",
+                (self.tenant_id, *window_ids),
+            ).rowcount
+
+        if repo_ids:
+            placeholders = ", ".join("?" for _ in repo_ids)
+            result.deleted_repos = connection.execute(
+                f"DELETE FROM repos WHERE tenant_id = ? AND id IN ({placeholders})",
+                (self.tenant_id, *repo_ids),
+            ).rowcount
+        elif scope == "all":
+            result.deleted_repos = len(repo_ids)
+
+        return result
 
     def list_recent_nodes(
         self,

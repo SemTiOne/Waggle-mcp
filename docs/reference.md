@@ -485,8 +485,6 @@ Repository layout:
 ```text
 waggle-mcp/
 ├── assets/
-├── benchmarks/fixtures/
-├── benchmarks/longmemeval/
 ├── deploy/
 ├── docs/
 ├── scripts/

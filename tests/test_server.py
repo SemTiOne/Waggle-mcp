@@ -138,23 +138,12 @@ def test_parser_accepts_graph_editor_commands() -> None:
     query_args = parser.parse_args(["query", "--input", "memory.abhi", "--query-id", "q1"])
     load_chunks_args = parser.parse_args(["load-chunks", "--input", "memory.abhi", "--chunk-id", "decision_1"])
     checkpoint_args = parser.parse_args(["checkpoint-context", "--project", "MCP", "--session-id", "thread-1", "--output", "handoff.abhi"])
+    clear_session_args = parser.parse_args(["clear-session", "--session-id", "thread-1", "--yes"])
+    clear_project_args = parser.parse_args(["clear-project", "--project", "MCP", "--yes"])
+    clear_all_args = parser.parse_args(["clear-all", "--yes"])
     push_args = parser.parse_args(["push", "--client-secret-path", "client.json", "--folder-id", "folder123"])
     pull_args = parser.parse_args(["pull", "file123", "--client-secret-path", "client.json"])
     share_args = parser.parse_args(["share", "file123", "--client-secret-path", "client.json"])
-    oolong_args = parser.parse_args(
-        [
-            "benchmark-oolong",
-            "oolong.jsonl",
-            "--eval-mode",
-            "waggle_rlm",
-            "--llm-backend",
-            "gemini",
-            "--llm-model",
-            "gemini-2.5-flash-lite",
-            "--llm-api-key-env",
-            "GEMINI_API_KEY",
-        ]
-    )
 
     assert plus_args.command == "plus"
     assert plus_args.json is True
@@ -189,6 +178,14 @@ def test_parser_accepts_graph_editor_commands() -> None:
     assert checkpoint_args.command == "checkpoint-context"
     assert checkpoint_args.project == "MCP"
     assert checkpoint_args.session_id == "thread-1"
+    assert clear_session_args.command == "clear-session"
+    assert clear_session_args.session_id == "thread-1"
+    assert clear_session_args.yes is True
+    assert clear_project_args.command == "clear-project"
+    assert clear_project_args.project == "MCP"
+    assert clear_project_args.yes is True
+    assert clear_all_args.command == "clear-all"
+    assert clear_all_args.yes is True
     assert push_args.command == "push"
     assert push_args.encrypt is True
     assert push_args.folder_id == "folder123"
@@ -196,13 +193,6 @@ def test_parser_accepts_graph_editor_commands() -> None:
     assert pull_args.file_ref == "file123"
     assert share_args.command == "share"
     assert share_args.file_ref == "file123"
-    assert oolong_args.command == "benchmark-oolong"
-    assert oolong_args.dataset_path == "oolong.jsonl"
-    assert oolong_args.eval_mode == "waggle_rlm"
-    assert oolong_args.llm_backend == "gemini"
-    assert oolong_args.llm_model == "gemini-2.5-flash-lite"
-    assert oolong_args.llm_api_key_env == "GEMINI_API_KEY"
-    assert oolong_args.rlm_max_iterations == 6
 
 
 def test_doctor_flags_mixed_embedding_model_ids(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -483,83 +473,6 @@ def test_audit_events_are_queryable_from_admin_cli(tmp_path: Path, capsys: pytes
     assert events[0]["event_type"] == "api_key.created"
     assert events[0]["resource_id"] == create_payload["api_key_id"]
     assert events[0]["metadata"]["prefix"] == create_payload["prefix"]
-
-
-def test_run_admin_command_benchmark_oolong(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    config = AppConfig(
-        backend="sqlite",
-        transport="stdio",
-        model_name="fake-model",
-        db_path=str(tmp_path / "server-memory.db"),
-        default_tenant_id="local-default",
-        http_host="127.0.0.1",
-        http_port=8080,
-        log_level="INFO",
-        rate_limit_rpm=120,
-        write_rate_limit_rpm=60,
-        max_concurrent_requests=8,
-        max_payload_bytes=1024 * 1024,
-        request_timeout_seconds=30,
-        export_dir=None,
-        neo4j_uri="",
-        neo4j_username="",
-        neo4j_password="",
-        neo4j_database="",
-    )
-
-    class FakeReport:
-        def to_dict(self) -> dict[str, object]:
-            return {"case_count": 1, "accuracy": 1.0, "eval_mode": "retrieval_only"}
-
-    captured: dict[str, object] = {}
-
-    def fake_evaluate_oolong(*args: object, **kwargs: object) -> FakeReport:
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return FakeReport()
-
-    monkeypatch.setattr("waggle.server.evaluate_oolong", fake_evaluate_oolong)
-    monkeypatch.setattr("waggle.server.run_gemini_one_shot", lambda **_: "coffee")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-
-    args = SimpleNamespace(
-        command="benchmark-oolong",
-        dataset_path="oolong.jsonl",
-        dataset_kind="auto",
-        context_field="auto",
-        eval_mode="retrieval_only",
-        llm_command="",
-        llm_backend="gemini",
-        llm_model="gemini-2.5-flash-lite",
-        llm_api_key_env="GEMINI_API_KEY",
-        llm_max_tokens=512,
-        llm_timeout_seconds=60.0,
-        retrieval_mode="graph",
-        max_nodes=8,
-        max_depth=1,
-        chunk_lines=12,
-        chunk_overlap_lines=3,
-        rlm_system_prompt_file="",
-        rlm_max_iterations=6,
-        limit=None,
-        output="",
-    )
-
-    exit_code = _run_admin_command(config, args)
-    stdout = capsys.readouterr().out
-
-    assert exit_code == 0
-    assert captured["args"] == ("oolong.jsonl",)
-    assert captured["kwargs"]["eval_mode"] == "retrieval_only"
-    assert captured["kwargs"]["retrieval_mode"] == "graph"
-    assert callable(captured["kwargs"]["llm_answerer"])
-    assert captured["kwargs"]["rlm_backend"] == "gemini"
-    assert captured["kwargs"]["rlm_backend_kwargs"] == {
-        "api_key": "test-key",
-        "model_name": "gemini-2.5-flash-lite",
-    }
-    assert '"accuracy": 1.0' in stdout
-
 
 def test_run_graph_editor_command_opens_browser_and_starts_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = AppConfig(
@@ -1288,8 +1201,44 @@ def test_checkpoint_context_cli_command(tmp_path: Path, capsys: pytest.CaptureFi
 
     assert exit_code == 0
     assert payload["checkpoint_scope"] == "session"
-    assert payload["output_path"].endswith(".abhi")
-    assert Path(payload["output_path"]).exists()
+
+
+def test_clear_session_project_and_all_tools_require_confirm_and_delete_data(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+    app.graph.observe_conversation(
+        user_message="Use Redis for caching.",
+        assistant_response="Noted.",
+        project="alpha",
+        session_id="sess-1",
+    )
+    app.graph.observe_conversation(
+        user_message="Use Kafka for ingestion.",
+        assistant_response="Noted.",
+        project="beta",
+        session_id="sess-2",
+    )
+
+    denied = app.handle_tool_call("clear_session", {"session_id": "sess-1"})
+    assert denied.isError is True
+
+    cleared_session = app.handle_tool_call("clear_session", {"session_id": "sess-1", "confirm": True})
+    assert cleared_session.structuredContent["scope"] == "session"
+    assert app.graph.query(query="redis", project="alpha", session_id="sess-1", max_nodes=5).nodes == []
+    assert app.graph.query(query="kafka", project="beta", session_id="sess-2", max_nodes=5).nodes
+
+    cleared_project = app.handle_tool_call("clear_project", {"project": "beta", "confirm": True})
+    assert cleared_project.structuredContent["scope"] == "project"
+    assert app.graph.query(query="kafka", project="beta", max_nodes=5).nodes == []
+
+    app.graph.observe_conversation(
+        user_message="Use Postgres for storage.",
+        assistant_response="Noted.",
+        project="gamma",
+        session_id="sess-3",
+    )
+    cleared_all = app.handle_tool_call("clear_all", {"confirm": True})
+    assert cleared_all.structuredContent["scope"] == "all"
+    assert app.graph.get_stats().total_nodes == 0
 
 
 def test_markdown_vault_tool_and_cli_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

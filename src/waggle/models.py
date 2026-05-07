@@ -873,6 +873,19 @@ class TranscriptIngestionResult(BaseModel):
     checkpoint_scope: str = ""
 
 
+class ClearScopeResult(BaseModel):
+    scope: str
+    project: str = ""
+    session_id: str = ""
+    deleted_nodes: int = 0
+    deleted_edges: int = 0
+    deleted_transcripts: int = 0
+    deleted_context_windows: int = 0
+    deleted_context_window_edges: int = 0
+    deleted_repos: int = 0
+    deleted_graph_ui_rows: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Diff / Merge models (abhi-diff-merge-tool)
 # ---------------------------------------------------------------------------

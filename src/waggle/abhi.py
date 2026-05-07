@@ -900,6 +900,32 @@ def diff_abhi_documents(
                         right_value=right_val,
                     ))
 
+        # Edge three-way conflict detection
+        edges_base = {str(e.get("id", "")): e for e in base_document.get("edges", [])}
+        for eid in sorted(set(edges_a) & set(edges_b)):
+            if not eid:
+                continue
+            base_edge = edges_base.get(eid)
+            left_edge = edges_a.get(eid)
+            right_edge = edges_b.get(eid)
+            if base_edge is None or left_edge is None or right_edge is None:
+                continue
+            for field in EDGE_DIFFED_FIELDS:
+                base_val = base_edge.get(field)
+                left_val = left_edge.get(field)
+                right_val = right_edge.get(field)
+                left_changed = json.dumps(base_val, sort_keys=True, default=str) != json.dumps(left_val, sort_keys=True, default=str)
+                right_changed = json.dumps(base_val, sort_keys=True, default=str) != json.dumps(right_val, sort_keys=True, default=str)
+                if left_changed and right_changed and json.dumps(left_val, sort_keys=True, default=str) != json.dumps(right_val, sort_keys=True, default=str):
+                    conflict_records.append(MergeConflictRecord(
+                        object_id=eid,
+                        object_type="edge",
+                        field=field,
+                        base_value=base_val,
+                        left_value=left_val,
+                        right_value=right_val,
+                    ))
+
     return FieldLevelDiffResult(
         input_path_a=str(Path(input_path_a).expanduser()),
         input_path_b=str(Path(input_path_b).expanduser()),
@@ -967,19 +993,21 @@ def _apply_merge_strategy(
             continue
 
         # Both changed — conflict
-        # Determine effective strategy for this field
+        # Determine effective strategy for this field.
+        # Apply type_overrides first (broad), then field_overrides (specific)
+        # so that field-level overrides take precedence over type-level ones.
         effective_strategy = strategy
         if strategy_config is not None:
-            for override in strategy_config.field_overrides:
-                if override.field == field:
-                    effective_strategy = override.strategy
-                    break
             if object_type == "node":
                 node_type_val = str(left_item.get("node_type", ""))
                 for override in strategy_config.type_overrides:
                     if override.node_type == node_type_val:
                         effective_strategy = override.strategy
                         break
+            for override in strategy_config.field_overrides:
+                if override.field == field:
+                    effective_strategy = override.strategy
+                    break
 
         resolved_by = effective_strategy
         if effective_strategy == "prefer_left":
@@ -998,15 +1026,25 @@ def _apply_merge_strategy(
         elif effective_strategy == "contradict":
             resolved_val = right_val
             resolved_by = "contradict"
-            # Schedule a CONTRADICTS edge
+            # Schedule a CONTRADICTS edge.
+            # For node conflicts, link the node to itself (self-loop).
+            # For edge conflicts, link the edge's source and target nodes
+            # to avoid creating a dangling edge that references an edge ID.
+            if object_type == "edge":
+                contradict_source = str(left_item.get("source_id", item_id))
+                contradict_target = str(left_item.get("target_id", item_id))
+            else:
+                contradict_source = item_id
+                contradict_target = item_id
             contradict_edges.append({
                 "id": str(uuid4()),
-                "source_id": item_id,
-                "target_id": item_id,
+                "source_id": contradict_source,
+                "target_id": contradict_target,
                 "relationship": "contradicts",
                 "weight": 1.0,
                 "metadata": {
                     "conflict_field": field,
+                    "conflict_edge_id": item_id if object_type == "edge" else "",
                     "left_value": left_val,
                     "right_value": right_val,
                     "auto_generated": True,
@@ -1410,10 +1448,43 @@ def _find_dangling_edges(document: dict[str, Any]) -> list[str]:
     return dangling
 
 
-def validate_abhi_signature(document: dict[str, Any]) -> None:
+def validate_abhi_signature(
+    document: dict[str, Any],
+    *,
+    trusted_public_key_path: str | Path | None = None,
+) -> None:
+    """Verify the Ed25519 signature on a signed .abhi document.
+
+    If *trusted_public_key_path* is provided, the public key is loaded from
+    that external file.  This is the **recommended** mode because it
+    prevents an attacker from re-signing a tampered archive with their own
+    key pair and bundling it inside the ZIP.
+
+    When *trusted_public_key_path* is ``None`` the function falls back to
+    the public key embedded inside the archive and emits a warning.  Use
+    this fallback only for quick smoke-checks, never for trust decisions.
+    """
     if not document.get("manifest", {}).get("signatures", {}).get("present"):
         raise ValidationFailure("This .abhi file is not signed.")
-    public_key = serialization.load_pem_public_key(document["public_key_pem"])
+
+    if trusted_public_key_path is not None:
+        key_path = Path(trusted_public_key_path).expanduser()
+        if not key_path.exists():
+            raise ValidationFailure(
+                f"Trusted public key file not found: {key_path}"
+            )
+        public_key = serialization.load_pem_public_key(key_path.read_bytes())
+    else:
+        warnings.warn(
+            "Verifying .abhi signature using the public key bundled inside "
+            "the archive.  This does NOT protect against an attacker who "
+            "re-signs a tampered file.  Pass trusted_public_key_path for "
+            "genuine trust verification.",
+            UserWarning,
+            stacklevel=2,
+        )
+        public_key = serialization.load_pem_public_key(document["public_key_pem"])
+
     if not isinstance(public_key, ed25519.Ed25519PublicKey):
         raise ValidationFailure("Unsupported ABHI public key.")
     try:

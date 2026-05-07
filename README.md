@@ -123,25 +123,17 @@ The intended package name is `waggle_plus`, distributed separately from the publ
 
 ---
 
-## Competitive Comparison
+## Product Scope
 
-Waggle's performance on multi-session memory retrieval (LongMemEval-S, 500 questions) compared to other memory systems:
+This public repo is the product-facing Waggle surface:
 
-| System | R@5 | Exact@5 | Latency | Tokens/Query | Cost | Status |
-|---|---|---|---|---|---|---|
-| **Waggle** | **97.4%** | **89.0%** | 1.6 ms | 63 | $0 | ✅ Open-source, local-first |
-| Hindsight | 94.6% | — | <300 ms | 1,500 | $$$$ | Proprietary, cloud |
-| MemPalace | 96.6%* | — | 500 ms | 170 | $0 | Open-source, local |
-| Mem0 | 93.4% | — | 7–10 s | 2,000 | $$ | Managed service |
-| Supermemory | 85.4% | — | <300 ms | 1,500 | $$ | Managed service |
-| Zep | ~85% | — | 4–5 s | 2,000 | $$$ | Managed service |
-| Atlas-CE | 99.0%† | — | ~400 ms | 2,000 | $$$$ | Enterprise, cloud |
+- MCP server and tool surface
+- local-first graph memory
+- automatic memory hooks and orchestration
+- `.abhi` export, import, diff, merge, and checkpoint handoff
+- Graph Studio and admin tooling
 
-**Notes:**
-- *MemPalace claims 100% on LongMemEval; independent verification (Vectorize, Atlas-CE) reports 96.6% R@5.
-- †Atlas-CE reports R@1 (single-session retrieval), not R@5 (multi-session). Not directly comparable.
-- Waggle's 97.4% R@5 is the highest verified multi-session recall among open-source and local-first systems.
-- Token efficiency: Waggle uses 95% fewer tokens than flat baselines (63 vs 1,500), reducing LLM inference cost proportionally.
+Research artifacts, benchmark harnesses, evaluation reports, and paper material now live in the private `waggle-pro` repo.
 
 ---
 
@@ -221,53 +213,6 @@ Conflicts or superseded context:
 | `WAGGLE_RECURSIVE_CONTEXT_INCLUDE_EVIDENCE` | `true` | Include transcript evidence |
 
 **Tool aliases:** `recursive_context`, `assemble_context`, `rlm_context` all resolve to `build_context`.
-
----
-
-## RLM-style Benchmark Suite
-
-Waggle is evaluated using the same benchmark families as the [Recursive Language Models paper](https://arxiv.org/abs/2512.24601): S-NIAH, BrowseComp-Plus, OOLONG, OOLONG-Pairs, and CodeQA. The first implementation maps each family to deterministic synthetic Waggle memory tasks.
-
-> **Warning:** This benchmark uses synthetic data mapped to Waggle's graph/transcript environment. It should not be compared numerically to the RLM paper until the exact public datasets and matching model setup are run.
-
-| Family | RLM paper equivalent | What it tests |
-|---|---|---|
-| S-NIAH-style | RULER S-NIAH | Retrieve one fact from N distractors — O(1) |
-| BrowseComp-Plus-style | BrowseComp-Plus | Multi-hop QA across 3 linked nodes |
-| OOLONG-style | OOLONG | Aggregate N entries — O(n) |
-| OOLONG-Pairs-style | OOLONG-Pairs | Pairwise conflict reasoning — O(n²) |
-| CodeQA-style | LongBench-v2 CodeQA | Codebase/repo understanding |
-
-The main comparison is: **raw context dump** vs **single query_graph** vs **recursive build_context**.
-
-**Example run:**
-
-```bash
-python benchmarks/rlm_style_waggle_eval.py \
-  --db /tmp/waggle_rlm_eval \
-  --scales 128 512 2048 \
-  --methods raw_context query_graph prime_context build_context \
-  --token-budget 1200 \
-  --output benchmark_results/
-```
-
-**Example results (scale=128):**
-
-| Benchmark family | Scale | Method | Score | Tokens returned |
-|---|---:|---|---:|---:|
-| S-NIAH-style | 128 | raw_context | 1.000 | 943 |
-| S-NIAH-style | 128 | query_graph | 1.000 | 93 |
-| S-NIAH-style | 128 | build_context | 1.000 | 181 |
-| OOLONG-Pairs-style | 128 | raw_context | 0.000 | 948 |
-| OOLONG-Pairs-style | 128 | query_graph | 0.000 | 98 |
-| OOLONG-Pairs-style | 128 | build_context | **1.000** | 515 |
-| CodeQA-style | 128 | raw_context | 0.000 | 920 |
-| CodeQA-style | 128 | query_graph | 1.000 | 178 |
-| CodeQA-style | 128 | build_context | **1.000** | 535 |
-
-Key finding: `build_context` uses **19–58% of raw_context tokens** at scale=128 while matching or exceeding accuracy — particularly on pairwise conflict reasoning and codebase understanding where explicit edge traversal matters.
-
-Output files: `benchmark_results/rlm_style_waggle_results.csv`, `.md`, `_summary.json`
 
 ---
 
@@ -655,7 +600,6 @@ waggle-mcp import-graph-backup --input-path my_memory.json
 | `waggle-mcp export-context-bundle` | Export a portable Markdown/JSON context pack. |
 | `waggle-mcp export-markdown-vault` | Export the graph as an Obsidian-style vault. |
 | `waggle-mcp ingest-transcript-handoff` | Ingest a rollover transcript, export a handoff bundle, and emit a session `.abhi` checkpoint. |
-| `waggle-mcp benchmark-oolong` | Run OOLONG retrieval evaluation and emit a JSON report. |
 
 ### `WAGGLE_STARTUP_MODE`
 
@@ -708,37 +652,6 @@ Controls the cosine similarity threshold for automatic node deduplication at wri
 
 ---
 
-## Benchmarks
-
-Measured on the full 500-question LongMemEval-S split (`all-MiniLM-L6-v2`, warm cache, 2026-05-03):
-
-| Mode | R@5 | Exact@5 | Exact@10 | Exact@20 |
-|---|---|---|---|---|
-| `graph_raw` | 97.4% | **89.0%** | 89.0% | 89.0% |
-| `graph_hybrid` | 97.0% | 87.2% | 94.8% | 98.0% |
-
-**Which mode should you use?**
-
-- Use `graph_raw` (default) when you want the highest precision in the top 5 results. It has no tunable reranking heuristics, making it the most stable and reproducible mode.
-- Use `graph_hybrid` when coverage matters more than top-5 precision — it finds nearly everything by K=20 (98.0% Exact@20), at the cost of slightly lower Exact@5. The hybrid path combines graph traversal with verbatim transcript retrieval, which helps for queries where the exact phrasing matters.
-
-The `graph_hybrid` reranking weights show some dev-set sensitivity (see overfitting check below), so treat its Exact@5 number as a softer figure than `graph_raw`.
-
-**Overfitting check (held-out 50 dev / 450 test, seed 42):**
-
-| Mode | Dev Exact@5 | Test Exact@5 | Gap |
-|---|---|---|---|
-| `graph_raw` | 88.0% | 89.1% | +1.1pp — stable across the split |
-| `graph_hybrid` | 92.0% | 86.7% | −5.3pp — reranking weights have dev-set sensitivity |
-
-`graph_raw` generalises cleanly. The `graph_hybrid` gap is expected — heuristic reranking weights are partially tuned to this distribution. It's not a correctness problem; it means the hybrid Exact@5 number is less portable than the raw one.
-
-**Context efficiency:** On the same LongMemEval-S factual lookup queries, Waggle uses 63 mean context tokens vs 162 for a naive chunked baseline — about 2.6× fewer. This is a comparison against untuned chunked retrieval, not a production RAG system. The more meaningful claim is qualitative: graph retrieval returns a subgraph with the reasoning chain attached, not just the matching text chunk.
-
-Local latency (SQLite + deterministic embeddings): `observe_conversation` 1.54 ms mean, `query_graph` 1.60 ms mean, `graph_diff` 0.80 ms mean.
-
----
-
 ## Security & Privacy
 
 - Data stays local by default (`~/.waggle/memory.db`). No telemetry, no cloud calls for local operation.
@@ -751,7 +664,6 @@ Local latency (SQLite + deterministic embeddings): `observe_conversation` 1.54 m
 
 ## Known Limitations
 
-- **Best on structured recall, weaker on answer synthesis.** Waggle retrieves the right facts and relationships — it doesn't synthesize a single benchmark-formatted answer from memory.
 - **Edges are load-bearing.** `observe_conversation` and `decompose_and_store` create them automatically. Raw `store_node` calls without follow-up edges produce disconnected nodes with no traversal value.
 - **Graph retrieval trades tokens for reasoning context.** Factual lookups are often cheaper than chunked RAG; graph-expansion queries intentionally spend more tokens to carry update chains and contradictions.
 - **Hybrid rerank is not the default.** The no-rerank hybrid path is stronger right now. The rerank path is available but intentionally not the launch default.
@@ -780,7 +692,6 @@ Run `waggle-mcp doctor` first — it catches the most common issues automaticall
 - **Environment variables, full tool surface, admin commands, Docker setup:** `waggle-mcp --help` or `docs/reference.md`
 - **Production deployment:** `deploy/kubernetes/README.md`
 - **Operations and troubleshooting:** `docs/runbooks/`
-- **Benchmark methodology:** `docs/benchmark-methodology.md`, `docs/longmemeval-methodology.md`
 - **Automatic memory rules (copy-pasteable):** `docs/automatic-memory-rules.md`
 - **Hook integration details:** `docs/hooks.md`
 - **.abhi format spec:** `docs/abhi-format-v2.md`

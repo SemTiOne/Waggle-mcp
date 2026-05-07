@@ -28,11 +28,14 @@ async def test_server_stdio_initialize_and_basic_calls(tmp_path: Path) -> None:
             assert init_result.serverInfo.name == "waggle"
 
             tools_result = await session.list_tools()
-            assert len(tools_result.tools) == 38
+            assert len(tools_result.tools) == 41
             assert {tool.name for tool in tools_result.tools} >= {
                 "store_node",
                 "query_graph",
                 "debug_retrieval",
+                "clear_session",
+                "clear_project",
+                "clear_all",
                 "list_context_scopes",
                 "list_context_windows",
                 "get_context_window",

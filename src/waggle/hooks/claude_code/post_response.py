@@ -59,7 +59,12 @@ def _silent_exit() -> None:
 
 
 def main() -> None:
-    if hasattr(signal, "SIGALRM"):
+    previous_handler: Any = None
+    previous_alarm = 0
+    has_sigalrm = hasattr(signal, "SIGALRM")
+    if has_sigalrm:
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_alarm = signal.alarm(0)
         signal.signal(signal.SIGALRM, _timeout_handler)
         signal.alarm(_TIMEOUT_SECONDS)
 
@@ -140,6 +145,12 @@ def main() -> None:
 
     except (TimeoutError, Exception):
         _silent_exit()
+    finally:
+        if has_sigalrm:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            if previous_alarm > 0:
+                signal.alarm(previous_alarm)
 
 
 if __name__ == "__main__":
