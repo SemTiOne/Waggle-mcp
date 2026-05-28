@@ -207,16 +207,42 @@ Research artifacts, benchmark harnesses, evaluation reports, and paper material 
 
 ## Architecture
 
-```
-MCP Client (Claude / Codex / Gemini CLI / Cursor / Antigravity / ChatGPT)
-    ↓
-waggle.server  — MCP tool surface
-    ↓
-RecursiveContextController  — RLM-inspired context assembly (build_context)
-    ↓
-Graph Engine  — MemoryGraph (SQLite) or Neo4jMemoryGraph
-    ↓
-Embeddings  — sentence-transformers (local) or deterministic fallback
+```mermaid
+flowchart TD
+    U["User / Developer"] --> C["MCP Client<br/>Claude, Codex, Cursor, Gemini CLI, Antigravity, ChatGPT"]
+    C --> S["waggle.server<br/>MCP tool surface"]
+
+    S --> P["Automatic memory policy<br/>prime_context before sessions<br/>query_graph before contextual answers<br/>observe_conversation after durable turns"]
+
+    P --> R["RecursiveContextController<br/>token-budgeted context assembly"]
+    R --> HR["Hybrid retrieval<br/>graph + verbatim transcript + recency"]
+    HR --> GE["Graph engine"]
+
+    GE --> SQ["MemoryGraph<br/>SQLite local-first store"]
+    GE --> N4J["Neo4jMemoryGraph<br/>remote / HTTPS deployment option"]
+
+    SQ --> DM["Graph data model<br/>typed nodes + typed edges"]
+    N4J --> DM
+
+    DM --> NT["Nodes<br/>fact, entity, concept,<br/>preference, decision, question, note"]
+    DM --> ET["Edges<br/>updates, contradicts, depends_on,<br/>derived_from, relates_to, similar_to"]
+
+    P --> ING["Ingestion pipeline"]
+    ING --> VT["Verbatim transcript stored first"]
+    VT --> EX["Memory extraction"]
+    EX --> INF["Edge inference + evidence records"]
+    INF --> DM
+
+    R --> PACK["Compact context pack<br/>ranked subgraph + provenance<br/>conflicts + update chains"]
+
+    DM --> CW["Context windows<br/>session-level memory containers"]
+    CW --> XW["Cross-window edges<br/>handoff, overlap, temporal continuity"]
+
+    DM --> ABHI[".abhi portable memory artifact"]
+    ABHI --> OPS["commit / pull / diff / merge / fsck / show"]
+    ABHI --> HANDOFF["checkpoint handoff<br/>between sessions or machines"]
+
+    S --> GS["Graph Studio / debug tools<br/>retrieval debugger, graph viz,<br/>conflict review, provenance inspection"]
 ```
 
 ---
