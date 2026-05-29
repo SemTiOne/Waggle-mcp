@@ -678,7 +678,7 @@ export function App() {
   const runTranscriptSearch = async () => {
     if (transcriptSearch.trim() === "") {
       setTranscriptHits([]);
-      setStatus("Please enter a search query.");
+      setToast("Please enter a search query.");
       return;
     }
     if (boot.sampleMode) {
