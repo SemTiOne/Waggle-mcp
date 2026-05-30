@@ -93,6 +93,9 @@ def _seed_transcript_fixture(app: WaggleServer, fixture_name: str) -> None:
         project=payload.get("project", ""),
         session_id=payload.get("session_id", ""),
         agent_id=payload.get("agent_id", ""),
+    )
+
+
 def write_waggle_codex_config(home: Path, db_path: Path) -> None:
     codex_dir = home / ".codex"
     codex_dir.mkdir(parents=True, exist_ok=True)
