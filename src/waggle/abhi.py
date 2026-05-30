@@ -428,6 +428,13 @@ def build_abhi_document(
                         import json as _json
 
                         meta = _json.loads(meta)
+                        if not isinstance(meta, dict):
+                            logger.warning(
+                                "Edge %s has non-dict metadata, defaulting to {}: got %s",
+                                edge.get("id", "<unknown>"),
+                                type(meta).__name__,
+                            )
+                            meta = {}
                     except _json.JSONDecodeError as exc:
                         logger.warning(
                             "Edge %s has malformed metadata, defaulting to {}: %s",

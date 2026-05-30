@@ -572,13 +572,13 @@ class TestEdgeQualityReport:
         rt = report["by_type"]["relates_to"]
         assert rt["avg_confidence"] == pytest.approx(1.0)
 
-    def test_malformed_edge_metadata_logs_warning(self, caplog) -> None:
-        """Edges with malformed metadata JSON should log a warning and be treated as having no confidence."""
+    def test_malformed_or_non_dict_edge_metadata_logs_warning(self, caplog) -> None:
+        """Edges with malformed or non-dict metadata JSON should log a warning and be treated as having no confidence."""
         import uuid
         from waggle.models import utc_now
 
         now = utc_now().isoformat()
-        node_ids = [str(uuid.uuid4()) for _ in range(2)]
+        node_ids = [str(uuid.uuid4()) for _ in range(4)]
         nodes = [
             {
                 "id": nid,
@@ -616,7 +616,17 @@ class TestEdgeQualityReport:
                 "weight": 1.0,
                 "metadata": "{not valid",
                 "created_at": now,
-            }
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "tenant_id": "local-default",
+                "source_id": node_ids[2],
+                "target_id": node_ids[3],
+                "relationship": "relates_to",
+                "weight": 1.0,
+                "metadata": '"foo"',  # Valid JSON, but not a dict
+                "created_at": now,
+            },
         ]
         snapshot = {
             "schema_version": 1,
@@ -632,5 +642,6 @@ class TestEdgeQualityReport:
         with caplog.at_level("WARNING"):
             doc = build_abhi_document(snapshot, include_low_confidence_edges=False)
             assert "malformed metadata" in caplog.text
-            # The edge should be kept because the default confidence is 1.0
-            assert len(doc["edges"]) == 1
+            assert "non-dict metadata" in caplog.text
+            # Both edges should be kept because the default confidence is 1.0
+            assert len(doc["edges"]) == 2
