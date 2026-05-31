@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import hashlib
 import heapq
 import json
@@ -1811,8 +1810,14 @@ class MemoryGraph:
             vec_a = self.embedding_model.from_bytes(emb_a)
             vec_b = self.embedding_model.from_bytes(emb_b)
             return self.embedding_model.cosine_similarity(vec_a, vec_b)
-        except Exception:
-            return None
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to compute cosine similarity between nodes %s and %s: %s",
+                a.id,
+                b.id,
+                exc,
+            )
+            raise
 
     def _backfill_transcript_storage(self, connection: sqlite3.Connection, *, batch_size: int = 100) -> None:
         pending_user_pairs: dict[str, str] = {}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import hashlib
 import json
 import sqlite3
@@ -349,6 +350,44 @@ def test_semantic_duplicate_nodes_reuse_existing_entry(tmp_path: Path) -> None:
     assert second.created is False
     assert second.node.id == first.node.id
     assert second.dedup_reason == "same_label_high_similarity"
+
+def test_node_cosine_similarity_logs_and_reraises_errors(tmp_path, caplog):
+    import logging
+
+    graph = MemoryGraph(
+        tmp_path / "cosine.db",
+        FakeEmbeddingModel(),
+    )
+
+    node_a = graph.add_node(
+        label="A",
+        content="hello",
+        node_type=NodeType.ENTITY,
+    ).node
+
+    node_b = graph.add_node(
+        label="B",
+        content="world",
+        node_type=NodeType.ENTITY,
+    ).node
+
+    original = graph.embedding_model.from_bytes
+
+    def broken_from_bytes(*args, **kwargs):
+        raise RuntimeError("embedding decode failed")
+
+    graph.embedding_model.from_bytes = broken_from_bytes
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(RuntimeError, match="embedding decode failed"):
+            graph._node_cosine_similarity(node_a, node_b)
+
+    assert any(
+        "Failed to compute cosine similarity" in record.message
+        for record in caplog.records
+    )
+
+    graph.embedding_model.from_bytes = original
 
 
 def test_entity_resolution_reuses_acronym_matches(tmp_path: Path) -> None:
