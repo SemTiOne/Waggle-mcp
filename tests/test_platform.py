@@ -102,7 +102,7 @@ def test_api_key_record_tracks_prefix_and_last_used(tmp_path: Path) -> None:
     graph = make_graph(tmp_path)
 
     created = graph.create_api_key("tenant-http", "http-test", created_by="ops@example.com")
-    assert created.record.prefix.startswith("sk_live_")
+    assert created.record.prefix.startswith("sk_test_")
     assert created.record.created_by == "ops@example.com"
 
     authenticated = graph.authenticate_api_key(created.raw_api_key)
@@ -393,6 +393,21 @@ def test_mcp_write_requires_graph_write_scope(tmp_path: Path) -> None:
         assert denied.status_code == 403
 
 
+def test_http_graph_delete_edge_requires_graph_write_scope(tmp_path: Path) -> None:
+    """Regression test for #46: graph_delete_edge mutates the graph and must require graph:write."""
+    graph = make_graph(tmp_path)
+    app_server = WaggleServer(graph=graph, config=make_http_config(tmp_path))
+    read_only_key = graph.create_api_key("tenant-http", "reader", scopes=["graph:read"])
+    app = create_http_application(app_server, app_server.config)
+
+    with TestClient(app) as client:
+        denied = client.delete(
+            "/api/graph/edges/any-edge-id",
+            headers={"X-API-Key": read_only_key.raw_api_key},
+        )
+        assert denied.status_code == 403
+
+
 def test_http_graph_editor_routes_and_crud(tmp_path: Path) -> None:
     graph = make_graph(tmp_path)
     insert_transcript_record(
@@ -620,3 +635,134 @@ def test_http_admin_retention_and_audit_endpoints(tmp_path: Path) -> None:
         )
         assert audit.status_code == 200
         assert audit.json()[0]["event_type"] == "retention.policy.updated"
+
+
+def test_graph_create_edge_rejects_invalid_weight(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    app_server = WaggleServer(graph=graph, config=make_http_config(tmp_path))
+    created = graph.create_api_key("tenant-http", "http-test")
+    app = create_http_application(app_server, app_server.config)
+
+    source = graph.for_tenant("tenant-http").add_node(
+        label="Source",
+        content="source node",
+        node_type="fact",
+    )
+    target = graph.for_tenant("tenant-http").add_node(
+        label="Target",
+        content="target node",
+        node_type="fact",
+    )
+
+    with TestClient(app) as client:
+        headers = {"X-API-Key": created.raw_api_key}
+
+        resp = client.post(
+            "/api/graph/edges",
+            json={
+                "source_id": source.node.id,
+                "target_id": target.node.id,
+                "relationship": "relates_to",
+                "weight": 1.5,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.post(
+            "/api/graph/edges",
+            json={
+                "source_id": source.node.id,
+                "target_id": target.node.id,
+                "relationship": "relates_to",
+                "weight": -0.5,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.post(
+            "/api/graph/edges",
+            json={
+                "source_id": source.node.id,
+                "target_id": target.node.id,
+                "relationship": "relates_to",
+                "weight": "bad",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.post(
+            "/api/graph/edges",
+            json={
+                "source_id": source.node.id,
+                "target_id": target.node.id,
+                "relationship": "relates_to",
+                "weight": 0.5,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+
+def test_graph_update_edge_rejects_invalid_weight(tmp_path: Path) -> None:
+    graph = make_graph(tmp_path)
+    app_server = WaggleServer(graph=graph, config=make_http_config(tmp_path))
+    created = graph.create_api_key("tenant-http", "http-test")
+    app = create_http_application(app_server, app_server.config)
+
+    source = graph.for_tenant("tenant-http").add_node(
+        label="Source",
+        content="source node",
+        node_type="fact",
+    )
+    target = graph.for_tenant("tenant-http").add_node(
+        label="Target",
+        content="target node",
+        node_type="fact",
+    )
+
+    edge = graph.for_tenant("tenant-http").add_edge(
+        source_id=source.node.id,
+        target_id=target.node.id,
+        relationship="relates_to",
+        weight=0.5,
+    )
+
+    with TestClient(app) as client:
+        headers = {"X-API-Key": created.raw_api_key}
+
+        resp = client.patch(
+            f"/api/graph/edges/{edge.id}",
+            json={"weight": 1.5},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.patch(
+            f"/api/graph/edges/{edge.id}",
+            json={"weight": -0.1},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.patch(
+            f"/api/graph/edges/{edge.id}",
+            json={"weight": "bad"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["message"].lower()
+
+        resp = client.patch(
+            f"/api/graph/edges/{edge.id}",
+            json={"weight": 0.8},
+            headers=headers,
+        )
+        assert resp.status_code == 200
