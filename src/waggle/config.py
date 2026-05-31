@@ -65,6 +65,7 @@ class AppConfig:
     neo4j_username: str
     neo4j_password: str
     neo4j_database: str
+    embedding_backend: str = "pytorch"
     retention_enabled: bool = False
     retention_days: int = 90
     retention_prune_interval_hours: int = 24
@@ -95,6 +96,12 @@ class AppConfig:
             backend=os.environ.get("WAGGLE_BACKEND", "sqlite").strip().lower(),
             transport=os.environ.get("WAGGLE_TRANSPORT", "stdio").strip().lower(),
             model_name=os.environ.get("WAGGLE_MODEL", "all-MiniLM-L6-v2"),
+            embedding_backend=os.environ.get(
+                "WAGGLE_EMBEDDING_BACKEND",
+                "pytorch",
+            )
+            .strip()
+            .lower(),
             db_path=os.environ.get("WAGGLE_DB_PATH") or resolve_default_db_path(),
             default_tenant_id=os.environ.get("WAGGLE_DEFAULT_TENANT_ID", "local-default").strip(),
             http_host=os.environ.get("WAGGLE_HTTP_HOST", "0.0.0.0"),
@@ -163,6 +170,9 @@ class AppConfig:
             raise ValidationFailure("WAGGLE_RETENTION_DAYS must be at least 1.")
         if self.retention_prune_interval_hours < 1:
             raise ValidationFailure("WAGGLE_RETENTION_PRUNE_INTERVAL_HOURS must be at least 1.")
+
+        if self.embedding_backend not in {"pytorch", "onnx"}:
+            raise ValidationFailure(f"Unsupported WAGGLE_EMBEDDING_BACKEND: {self.embedding_backend}")
 
     def hybrid_retrieval_config(self) -> HybridRetrievalConfig:
         return HybridRetrievalConfig(
