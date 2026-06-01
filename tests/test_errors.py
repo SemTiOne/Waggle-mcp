@@ -31,12 +31,10 @@ EXPECTED_ERROR_METADATA = {
 
 assert set(WaggleError.__subclasses__()) == set(EXPECTED_ERROR_METADATA)
 
+
 @pytest.mark.parametrize(
     ("error_cls", "expected_code", "expected_status_code"),
-    [
-        (cls, code, status)
-        for cls, (code, status) in EXPECTED_ERROR_METADATA.items()
-    ],
+    [(cls, code, status) for cls, (code, status) in EXPECTED_ERROR_METADATA.items()],
 )
 def test_waggle_error_code_and_status_code(
     error_cls,
