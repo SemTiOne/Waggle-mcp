@@ -5,7 +5,7 @@ Part of ONNX Runtime migration (Issue #121).
 Exports `all-MiniLM-L6-v2` to ONNX and validates numerical parity and timing against PyTorch.
 
 Requirements:
-    pip install "sentence-transformers>=2.7.0" "optimum[onnxruntime]"
+    pip install onnx onnxruntime sentence-transformers>=3.2.0 optimum[onnxruntime]
 """
 
 import argparse
