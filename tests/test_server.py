@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +10,7 @@ import numpy as np
 import pytest
 
 import waggle
+import waggle.server as server_module
 from waggle.config import AppConfig
 from waggle.graph import MemoryGraph
 from waggle.models import NodeType, RelationType
@@ -28,6 +31,8 @@ from waggle.server import (
     _write_gemini,
     _write_other,
 )
+
+ABHI_FIXTURES = Path(__file__).parent / "fixtures" / "abhi"
 
 
 class FakeEmbeddingModel:
@@ -81,6 +86,17 @@ def make_app(tmp_path: Path) -> WaggleServer:
         neo4j_database="",
     )
     return WaggleServer(graph=graph, config=config)
+
+
+def _seed_transcript_fixture(app: WaggleServer, fixture_name: str) -> None:
+    payload = json.loads((ABHI_FIXTURES / fixture_name).read_text(encoding="utf-8"))
+    app.graph.observe_conversation(
+        user_message=payload["user_message"],
+        assistant_response=payload["assistant_response"],
+        project=payload.get("project", ""),
+        session_id=payload.get("session_id", ""),
+        agent_id=payload.get("agent_id", ""),
+    )
 
 
 def write_waggle_codex_config(home: Path, db_path: Path) -> None:
@@ -241,6 +257,18 @@ def test_parser_accepts_graph_editor_commands() -> None:
     assert pull_args.file_ref == "file123"
     assert share_args.command == "share"
     assert share_args.file_ref == "file123"
+
+
+def test_run_doctor_has_single_invocation_site() -> None:
+    tree = ast.parse(inspect.getsource(server_module))
+
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_run_doctor"
+    ]
+
+    assert len(calls) == 1
 
 
 def test_doctor_flags_mixed_embedding_model_ids(
@@ -513,7 +541,7 @@ def test_create_and_list_api_keys_cli_redacts_hash(tmp_path: Path, capsys: pytes
     create_payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert create_payload["prefix"].startswith("sk_live_")
+    assert create_payload["prefix"].startswith("sk_test_")
     assert create_payload["created_by"] == "ops@example.com"
     assert create_payload["scopes"] == ["graph:read", "graph:write", "admin:read", "admin:write"]
     assert "raw_api_key" in create_payload
@@ -529,6 +557,25 @@ def test_create_and_list_api_keys_cli_redacts_hash(tmp_path: Path, capsys: pytes
     assert listed[0]["expires_at"] is not None
     assert listed[0]["scopes"] == ["graph:read", "graph:write", "admin:read", "admin:write"]
     assert "key_hash" not in listed[0]
+
+
+def test_create_api_key_cli_uses_configured_live_prefix(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    app = make_app(tmp_path)
+    app.config.api_key_environment = "live"
+
+    create_args = SimpleNamespace(
+        command="create-api-key",
+        tenant_id="workspace-a",
+        name="prod-agent",
+        expires_in_days=30,
+        created_by="ops@example.com",
+    )
+    exit_code = _run_admin_command(app.config, create_args)
+    create_payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert create_payload["prefix"].startswith("sk_live_")
+    assert create_payload["raw_api_key"].startswith(create_payload["prefix"])
 
 
 def test_retention_admin_commands_update_and_prune(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -876,12 +923,7 @@ def test_export_validate_inspect_and_import_abhi_tools(tmp_path: Path) -> None:
 
 def test_export_abhi_tool_refuses_likely_secrets_without_force(tmp_path: Path) -> None:
     app = make_app(tmp_path)
-    app.graph.observe_conversation(
-        user_message="My token is sk-abcdefghijklmnopqrstuvwxyz123456.",
-        assistant_response="I will not repeat the token.",
-        session_id="secret-session",
-        project="security",
-    )
+    _seed_transcript_fixture(app, "secret-scan-refusal.json")
 
     refused = app.handle_tool_call(
         "export_abhi",
@@ -896,6 +938,19 @@ def test_export_abhi_tool_refuses_likely_secrets_without_force(tmp_path: Path) -
     assert "appear to contain secrets" in refused.content[0].text
     assert forced.isError is False
     assert Path(forced.structuredContent["output_path"]).exists()
+
+
+def test_export_abhi_tool_allows_false_positive_adjacent_text_without_force(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+    _seed_transcript_fixture(app, "secret-scan-safe.json")
+
+    exported = app.handle_tool_call(
+        "export_abhi",
+        {"output_path": str(tmp_path / "safe.abhi"), "project": "security"},
+    )
+
+    assert exported.isError is False
+    assert Path(exported.structuredContent["output_path"]).exists()
 
 
 def test_diff_and_merge_abhi_tools(tmp_path: Path) -> None:
@@ -1808,6 +1863,42 @@ def test_write_codex_config_updates_existing_file_without_duplicates(
     assert f'WAGGLE_DB_PATH = "{tmp_path / "memory.db"}"' in contents
     assert "/old/python" not in contents
     assert "/old/memory.db" not in contents
+
+
+def test_validate_startup_warns_for_live_default_tenant(tmp_path, caplog):
+    app = make_app(tmp_path)
+
+    app.config.api_key_environment = "live"
+    app.config.default_tenant_id = "local-default"
+
+    with caplog.at_level("WARNING"):
+        app.validate_startup()
+
+    assert "WAGGLE_API_KEY_ENVIRONMENT is set to 'live'" in caplog.text
+
+
+def test_validate_startup_does_not_warn_for_custom_tenant(tmp_path, caplog):
+    app = make_app(tmp_path)
+
+    app.config.api_key_environment = "live"
+    app.config.default_tenant_id = "workspace-prod"
+
+    with caplog.at_level("WARNING"):
+        app.validate_startup()
+
+    assert "WAGGLE_API_KEY_ENVIRONMENT is set to 'live'" not in caplog.text
+
+
+def test_validate_startup_does_not_warn_for_test_environment(tmp_path, caplog):
+    app = make_app(tmp_path)
+
+    app.config.api_key_environment = "test"
+    app.config.default_tenant_id = "local-default"
+
+    with caplog.at_level("WARNING"):
+        app.validate_startup()
+
+    assert "WAGGLE_API_KEY_ENVIRONMENT is set to 'live'" not in caplog.text
 
 
 def test_write_codex_agents_creates_managed_block(tmp_path: Path) -> None:

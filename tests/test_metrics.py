@@ -34,4 +34,7 @@ def test_format_labels_escapes_special_characters():
         ),
     )
     result = MetricsRegistry._format_labels(labels)
+
+    result = MetricsRegistry._format_labels(labels)
+
     assert result == '{message="quote\\" backslash\\\\ newline\\n"}'
