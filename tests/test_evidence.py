@@ -4,7 +4,7 @@ These are exercised indirectly during observation integration tests, but doesn't
 - Regressions in the deduplication key
 - Validity-window logic
 - Span lookup,
-- Ranking sort order. 
+- Ranking sort order.
 
 This file covers each of the four functions directly, with no database / server required:
 
