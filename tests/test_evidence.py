@@ -235,7 +235,6 @@ def test_rank_nonpositive_limit_returns_all() -> None:
 
     assert len(rank_node_evidence(node, query="", limit=0)) == 4
 
-from waggle.evidence import build_observation_evidence
 
 
 def test_build_observation_evidence_repeated_snippet():
