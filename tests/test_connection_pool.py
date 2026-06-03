@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-import time
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -328,6 +327,21 @@ def test_close_closes_underlying_connections(tmp_path: Path) -> None:
 def test_close_wakes_a_waiting_checkout(tmp_path: Path) -> None:
     factory = _CountingFactory(tmp_path / "wake.db")
     created = SQLiteConnectionPool(factory, size=1, checkout_timeout=None)
+
+    # Fire an Event the instant the waiter parks in the pool's condition wait,
+    # so close() runs only once the waiter has definitely reached the blocking
+    # point -- no fixed sleeps. The waiter holds the condition lock until wait()
+    # atomically releases it, so close() (which must take that same lock to
+    # notify) cannot wake the waiter before it is genuinely parked.
+    waiting = threading.Event()
+    original_wait = created._condition.wait
+
+    def signaling_wait(*args: object, **kwargs: object) -> bool:
+        waiting.set()
+        return original_wait(*args, **kwargs)
+
+    created._condition.wait = signaling_wait  # type: ignore[method-assign]
+
     held = created.checkout()
     held.__enter__()  # occupy the only connection so the waiter must block
 
@@ -344,7 +358,7 @@ def test_close_wakes_a_waiting_checkout(tmp_path: Path) -> None:
 
     thread = threading.Thread(target=waiter)
     thread.start()
-    time.sleep(0.2)  # let the waiter reach the blocking wait
+    assert waiting.wait(timeout=5), "waiter never reached the blocking wait"
 
     created.close()  # must wake the blocked waiter, not strand it
     held.__exit__(None, None, None)
@@ -367,20 +381,55 @@ def test_close_with_drain_timeout_waits_for_leases(tmp_path: Path) -> None:
     factory = _CountingFactory(tmp_path / "drain.db")
     created = SQLiteConnectionPool(factory, size=2)
 
+    # Fire an Event when close() enters its drain wait. The borrower never waits
+    # on the pool condition (size=2, a connection is free), so this only signals
+    # for close()'s drain loop -- letting us release the lease exactly when close
+    # is provably blocking, with no fixed sleeps.
+    close_is_draining = threading.Event()
+    original_wait = created._condition.wait
+
+    def signaling_wait(*args: object, **kwargs: object) -> bool:
+        close_is_draining.set()
+        return original_wait(*args, **kwargs)
+
+    created._condition.wait = signaling_wait  # type: ignore[method-assign]
+
+    acquired = threading.Event()
+    may_release = threading.Event()
     released = threading.Event()
 
     def borrower() -> None:
         with created.checkout():
-            time.sleep(0.3)
-        released.set()
+            acquired.set()  # the lease is now held
+            assert may_release.wait(timeout=5), "borrower was never released"
+        released.set()  # connection returned to the pool
 
-    thread = threading.Thread(target=borrower)
-    thread.start()
-    time.sleep(0.05)  # ensure the borrower has leased a connection
+    borrower_thread = threading.Thread(target=borrower)
+    borrower_thread.start()
+    assert acquired.wait(timeout=5), "borrower never leased a connection"
 
-    created.close(drain_timeout=5.0)
+    # Run close() off the main thread so we can confirm it actually blocks on the
+    # outstanding lease before we hand the connection back.
+    closed = threading.Event()
+
+    def closer() -> None:
+        created.close(drain_timeout=5.0)
+        closed.set()
+
+    closer_thread = threading.Thread(target=closer)
+    closer_thread.start()
+
+    # close() is now provably blocked in its drain wait while the lease is held.
+    assert close_is_draining.wait(timeout=5), "close() did not block on the lease"
+    assert not closed.is_set()
+    assert not released.is_set()
+
+    may_release.set()  # let the borrower return the connection
+    assert closed.wait(timeout=5), "close() did not return after the lease drained"
     assert released.is_set()  # close waited for the lease to drain
-    thread.join(timeout=5)
+
+    borrower_thread.join(timeout=5)
+    closer_thread.join(timeout=5)
 
 
 def test_context_manager_closes_pool(tmp_path: Path) -> None:
