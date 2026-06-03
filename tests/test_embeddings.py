@@ -50,8 +50,10 @@ def test_uncached_transformer_falls_back_to_deterministic_embeddings(monkeypatch
     assert vector.shape == (256,)
     assert np.isclose(np.linalg.norm(vector), 1.0)
 
+
 def test_embedding_cache_shared_across_instances(monkeypatch: pytest.MonkeyPatch) -> None:
     EmbeddingModel._GLOBAL_EMBED_CACHE.clear()
+
     class CountingModel:
         def __init__(self) -> None:
             self.calls = 0
@@ -80,6 +82,7 @@ def test_embedding_cache_shared_across_instances(monkeypatch: pytest.MonkeyPatch
     model_b.embed("foo")
 
     assert counting_model.calls == 1
+
 
 def test_embedding_cache_isolates_different_models(
     monkeypatch: pytest.MonkeyPatch,
