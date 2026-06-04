@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 
 # 4. Install pre-commit hooks (recommended)
 # One-time setup: wires up the existing .pre-commit-config.yaml so ruff
-# lint and format run automatically before every commit.
+# check and format run automatically before every commit.
 pre-commit install
 
 # 5. Verify the setup
