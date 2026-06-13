@@ -12,7 +12,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Iterable
-from contextlib import nullcontext, contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
