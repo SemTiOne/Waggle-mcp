@@ -6,7 +6,9 @@ import logging
 import math
 import os
 import sqlite3
+import struct
 import time
+import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,6 +72,28 @@ class MemoryGraphBase:
     def _expand_query_aliases(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
 
+    # ── Embedding checksum helpers (issue #71) ───────────────────────────────
+    # Defined on the shared base so every mixin (mutation, transcript, traversal)
+    # and MemoryGraph itself encodes on write and validates on read identically.
+    def _encode_embedding(self, embedding: Any) -> bytes:
+        """Serialise an embedding vector to the checksummed canonical blob."""
+        return encode_embedding_blob(self.embedding_model.to_bytes(embedding))
+
+    def _ensure_encoded_embedding(self, blob: bytes) -> bytes:
+        """Return a stored/imported blob in canonical form, upgrading if legacy."""
+        return ensure_encoded_embedding(blob)
+
+    def _decode_embedding(self, blob: bytes | None) -> Any | None:
+        """Deserialise a stored embedding blob, validating its checksum.
+
+        Returns ``None`` when the column is empty or the checksum fails, so every
+        read site falls back to "no embedding" instead of trusting corrupt bytes.
+        """
+        raw = decode_embedding_blob(blob)
+        if raw is None:
+            return None
+        return self.embedding_model.from_bytes(raw)
+
 
 def _parse_datetime(raw: str) -> datetime:
     value = datetime.fromisoformat(raw)
@@ -99,6 +123,76 @@ def _decode_metadata(raw: Any) -> dict[str, Any]:
 def _normalized_content_hash(text: str) -> str:
     normalized = normalize_text(text)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+# ── Embedding blob codec (issue #71) ──────────────────────────────────────────
+#
+# Embeddings are persisted as raw float32 bytes in the ``embedding`` BLOB columns
+# of ``nodes``, ``transcript_records`` and ``context_windows``. A single flipped
+# byte (failing storage, partial write on power loss, fsck repair, an SSD without
+# transparent page-cache checksums) used to feed straight into cosine similarity
+# and produce a wrong-but-plausible score with no error at any layer.
+#
+# Canonical on-disk form for a *checksummed* blob is:
+#
+#     EMBEDDING_BLOB_MAGIC (4 bytes) | raw float32 bytes | CRC (4 bytes, little-endian)
+#
+# The magic prefix makes the format self-describing, so a read can tell a
+# checksummed blob from a legacy raw blob without consulting ``embedding_dim``
+# (which sidesteps the dim-length-collision ambiguity a bare trailer would have).
+# Legacy blobs with no prefix are accepted verbatim for one release and upgraded
+# in place by :meth:`MemoryGraph.migrate_embeddings_to_checksummed`.
+#
+# We use the stdlib :func:`zlib.crc32` (CRC-32) rather than CRC32C: it is in the
+# standard library, C-accelerated, and more than adequate for detecting accidental
+# bit-rot. The checksum is computed and verified only here, so swapping in a
+# hardware CRC32C later is a one-function change.
+EMBEDDING_BLOB_MAGIC = b"WEB1"
+_EMBEDDING_CRC_LEN = 4
+
+
+def encode_embedding_blob(raw: bytes) -> bytes:
+    """Wrap raw float32 embedding bytes with the magic prefix and a CRC trailer."""
+    crc = zlib.crc32(raw) & 0xFFFFFFFF
+    return EMBEDDING_BLOB_MAGIC + raw + struct.pack("<I", crc)
+
+
+def is_checksummed_embedding(blob: bytes | None) -> bool:
+    """Return True if ``blob`` is already in the checksummed canonical form."""
+    return bool(blob) and blob[: len(EMBEDDING_BLOB_MAGIC)] == EMBEDDING_BLOB_MAGIC
+
+
+def ensure_encoded_embedding(blob: bytes) -> bytes:
+    """Return ``blob`` in canonical form, wrapping a legacy/raw blob if needed.
+
+    Idempotent: an already-checksummed blob is returned unchanged, so this is
+    safe to apply on copy-through writes and on import without double-wrapping.
+    """
+    return blob if is_checksummed_embedding(blob) else encode_embedding_blob(blob)
+
+
+def decode_embedding_blob(blob: bytes | None) -> bytes | None:
+    """Return verified raw float32 bytes, or ``None`` if absent or corrupt.
+
+    * ``None``/empty input → ``None`` (no embedding).
+    * Checksummed blob whose CRC matches → the raw float32 bytes.
+    * Checksummed blob whose CRC fails → ``None`` (corruption; caller treats the
+      row as having no usable embedding and may re-embed it).
+    * Legacy blob with no magic prefix → returned verbatim (no checksum exists
+      yet to validate; upgraded on the next write or by the migration).
+    """
+    if not blob:
+        return None
+    if is_checksummed_embedding(blob):
+        body = blob[len(EMBEDDING_BLOB_MAGIC) :]
+        if len(body) < _EMBEDDING_CRC_LEN:
+            return None
+        raw, trailer = body[:-_EMBEDDING_CRC_LEN], body[-_EMBEDDING_CRC_LEN:]
+        expected = struct.pack("<I", zlib.crc32(raw) & 0xFFFFFFFF)
+        if trailer != expected:
+            return None
+        return raw
+    return blob
 
 
 @dataclass(frozen=True)

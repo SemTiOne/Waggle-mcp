@@ -5289,6 +5289,34 @@ def _run_doctor(config: AppConfig, *, fix: bool = False, json_output: bool = Fal
                 )
                 ok_items.append("Stale embeddings re-embedded")
                 store_health = graph.get_embedding_store_health()
+            checksum_failures = (
+                store_health["node_checksum_failures"]
+                + store_health["transcript_checksum_failures"]
+                + store_health["window_checksum_failures"]
+            )
+            if fix and checksum_failures:
+                cleared = graph.clear_corrupt_embeddings()
+                rebuilt = graph.reembed_stale_embeddings(batch_size=100)
+                windows_rebuilt = graph.recompute_stale_window_embeddings()
+                ok(
+                    "Cleared corrupt embeddings: "
+                    f"{cleared['transcript_records']} transcript, {cleared['nodes']} node, "
+                    f"{cleared['context_windows']} window rows; rebuilt "
+                    f"{rebuilt['transcript_rows_updated']} transcript, {rebuilt['node_rows_updated']} node and "
+                    f"{windows_rebuilt} window embeddings."
+                )
+                ok_items.append("Corrupt embeddings cleared and rebuilt")
+                store_health = graph.get_embedding_store_health()
+                checksum_failures = (
+                    store_health["node_checksum_failures"]
+                    + store_health["transcript_checksum_failures"]
+                    + store_health["window_checksum_failures"]
+                )
+            legacy_rows = (
+                store_health["node_legacy_rows"]
+                + store_health["transcript_legacy_rows"]
+                + store_health["window_legacy_rows"]
+            )
             transcript_models = store_health["transcript_model_counts"]
             node_models = store_health["node_model_counts"]
             emit(f"  Current model id: {store_health['current_model_id']}")
@@ -5306,6 +5334,45 @@ def _run_doctor(config: AppConfig, *, fix: bool = False, json_output: bool = Fal
             else:
                 ok("Store model IDs are consistent.")
                 ok_items.append("Embedding store model IDs consistent")
+
+            if checksum_failures:
+                issues.append(f"{checksum_failures} embedding row(s) fail the integrity checksum (corruption).")
+                fail(
+                    "Embedding checksum failures: "
+                    f"{store_health['transcript_checksum_failures']} transcript rows, "
+                    f"{store_health['node_checksum_failures']} node rows, "
+                    f"{store_health['window_checksum_failures']} window rows. "
+                    "Run 'waggle-mcp doctor --fix' to clear and rebuild them."
+                )
+            elif legacy_rows:
+                emit("  No checksum failures in checksummed rows; legacy rows cannot be checksum-verified yet.")
+                warnings.append(
+                    f"{legacy_rows} embedding row(s) use the legacy pre-checksum format "
+                    "and cannot be checksum-verified until rewritten."
+                )
+            else:
+                ok("All stored embeddings pass the integrity checksum.")
+                ok_items.append("Embedding checksums verified")
+            if legacy_rows:
+                emit(
+                    "  Pre-checksum (legacy) rows: "
+                    f"{store_health['transcript_legacy_rows']} transcript, {store_health['node_legacy_rows']} node, "
+                    f"{store_health['window_legacy_rows']} window (upgraded automatically on next write)."
+                )
+
+            embedding_store_data = {
+                "current_model_id": store_health["current_model_id"],
+                "transcript_model_counts": transcript_models,
+                "node_model_counts": node_models,
+                "transcript_stale_rows": store_health["transcript_stale_rows"],
+                "node_stale_rows": store_health["node_stale_rows"],
+                "mixed_models": store_health["mixed_models"],
+                "checksum_failures": checksum_failures,
+                "transcript_checksum_failures": store_health["transcript_checksum_failures"],
+                "node_checksum_failures": store_health["node_checksum_failures"],
+                "window_checksum_failures": store_health["window_checksum_failures"],
+                "legacy_rows": legacy_rows,
+            }
     except Exception as exc:
         message = f"Embedding store check failed: {type(exc).__name__}: {exc}"
         issues.append(message)

@@ -95,6 +95,9 @@ from waggle.models import (
 from waggle.retrieval.hybrid import HybridRetrievalConfig, HybridRetriever
 
 from .base import (
+    EMBEDDING_BLOB_MAGIC as EMBEDDING_BLOB_MAGIC,
+)
+from .base import (
     MemoryGraphBase,
     _decode_metadata,
     _encode_evidence_records,
@@ -104,6 +107,18 @@ from .base import (
     _parse_datetime,
     _retrieval_session_scope,
     _scope_matches,
+)
+from .base import (
+    decode_embedding_blob as decode_embedding_blob,
+)
+from .base import (
+    encode_embedding_blob as encode_embedding_blob,
+)
+from .base import (
+    ensure_encoded_embedding as ensure_encoded_embedding,
+)
+from .base import (
+    is_checksummed_embedding as is_checksummed_embedding,
 )
 from .base import (
     recency_weight as recency_weight,
@@ -1268,6 +1283,23 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
 
         self._backfill_transcript_storage(connection, batch_size=100)
 
+        # Embedding checksum migration (issue #71): upgrade this tenant's
+        # pre-checksum blobs to the canonical CRC-trailered form. It is scoped to
+        # self.tenant_id and pre-filters to non-checksummed rows in SQL, so on a
+        # multi-tenant DB each tenant migrates its own rows on its own open (a
+        # global schema-version gate would have marked the whole DB migrated while
+        # tenants that never opened stayed legacy), and a fully-migrated tenant
+        # fetches nothing.
+        upgraded = self._migrate_embeddings_to_checksummed_conn(connection)
+        if upgraded["nodes"] or upgraded["transcript_records"] or upgraded["context_windows"]:
+            LOGGER.info(
+                "Upgraded %d node, %d transcript and %d window embeddings to checksummed format for tenant %s",
+                upgraded["nodes"],
+                upgraded["transcript_records"],
+                upgraded["context_windows"],
+                self.tenant_id,
+            )
+
         connection.execute(
             """
             INSERT OR IGNORE INTO schema_migrations (version, applied_at)
@@ -1502,12 +1534,10 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                 ).fetchone()
             if row_a is None or row_b is None:
                 return None
-            emb_a = row_a["embedding"]
-            emb_b = row_b["embedding"]
-            if emb_a is None or emb_b is None:
+            vec_a = self._decode_embedding(row_a["embedding"])
+            vec_b = self._decode_embedding(row_b["embedding"])
+            if vec_a is None or vec_b is None:
                 return None
-            vec_a = self.embedding_model.from_bytes(emb_a)
-            vec_b = self.embedding_model.from_bytes(emb_b)
             return self.embedding_model.cosine_similarity(vec_a, vec_b)
         except Exception as exc:
             LOGGER.warning(
@@ -1563,11 +1593,11 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                     or int(row["embedding_dim"] or 0) <= 0
                 ):
                     embedding, model_id, dim = self._embed_with_metadata(row["transcript_text"])
-                    embedding_bytes = self.embedding_model.to_bytes(embedding)
+                    embedding_bytes = self._encode_embedding(embedding)
                 else:
                     model_id = str(row["embedding_model_id"] or "").strip()
                     dim = int(row["embedding_dim"] or 0)
-                    embedding_bytes = row["embedding"]
+                    embedding_bytes = self._ensure_encoded_embedding(row["embedding"])
                 connection.execute(
                     """
                     UPDATE transcript_records
@@ -1588,11 +1618,17 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         for row in node_rows:
             if row["embedding"] is None:
                 embedding, model_id, dim = self._embed_with_metadata(row["content"])
-                embedding_bytes = self.embedding_model.to_bytes(embedding)
+                embedding_bytes = self._encode_embedding(embedding)
             else:
-                model_id = self._current_embedding_model_id()
-                dim = len(self.embedding_model.from_bytes(row["embedding"]))
-                embedding_bytes = row["embedding"]
+                decoded = self._decode_embedding(row["embedding"])
+                if decoded is None:
+                    # Stored embedding is unreadable/corrupt — re-embed from content.
+                    embedding, model_id, dim = self._embed_with_metadata(row["content"])
+                    embedding_bytes = self._encode_embedding(embedding)
+                else:
+                    model_id = self._current_embedding_model_id()
+                    dim = len(decoded)
+                    embedding_bytes = self._ensure_encoded_embedding(row["embedding"])
             connection.execute(
                 """
                 UPDATE nodes
@@ -1656,14 +1692,162 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                     (self.tenant_id, self._current_embedding_model_id()),
                 ).fetchone()[0]
             )
+            transcript_checksum = self._scan_embedding_integrity(connection, "transcript_records", self.tenant_id)
+            node_checksum = self._scan_embedding_integrity(connection, "nodes", self.tenant_id)
+            window_checksum = self._scan_embedding_integrity(connection, "context_windows", self.tenant_id)
+            window_stale = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM context_windows WHERE tenant_id = ? AND embedding_stale = 1",
+                    (self.tenant_id,),
+                ).fetchone()[0]
+            )
         return {
             "current_model_id": self._current_embedding_model_id(),
             "transcript_model_counts": {str(row["embedding_model_id"]): int(row["count"]) for row in transcript_rows},
             "node_model_counts": {str(row["embedding_model_id"]): int(row["count"]) for row in node_rows},
             "transcript_stale_rows": transcript_stale,
             "node_stale_rows": node_stale,
+            "window_stale_rows": window_stale,
             "mixed_models": (len(transcript_rows) > 1) or (len(node_rows) > 1),
+            "transcript_checksum_failures": transcript_checksum["failures"],
+            "node_checksum_failures": node_checksum["failures"],
+            "window_checksum_failures": window_checksum["failures"],
+            "transcript_legacy_rows": transcript_checksum["legacy"],
+            "node_legacy_rows": node_checksum["legacy"],
+            "window_legacy_rows": window_checksum["legacy"],
         }
+
+    @staticmethod
+    def _scan_embedding_integrity(connection: sqlite3.Connection, table: str, tenant_id: str) -> dict[str, int]:
+        """Count checksum failures and un-checksummed (legacy) embedding rows for one tenant.
+
+        A "failure" is a blob in the canonical checksummed form whose CRC does not
+        validate — i.e. detected bit-rot. A "legacy" row is a pre-checksum blob that
+        carries no trailer yet (counted for migration visibility, never a failure).
+        Scoped to ``tenant_id`` so multi-tenant databases do not leak other tenants'
+        rows into a tenant-local health report.
+        """
+        failures = 0
+        legacy = 0
+        for (blob,) in connection.execute(
+            f"SELECT embedding FROM {table} WHERE tenant_id = ? AND embedding IS NOT NULL",
+            (tenant_id,),
+        ):
+            if not isinstance(blob, (bytes, bytearray)):
+                continue
+            blob = bytes(blob)
+            if is_checksummed_embedding(blob):
+                if decode_embedding_blob(blob) is None:
+                    failures += 1
+            else:
+                legacy += 1
+        return {"failures": failures, "legacy": legacy}
+
+    def migrate_embeddings_to_checksummed(self) -> dict[str, int]:
+        """Upgrade this tenant's legacy (un-checksummed) embedding blobs in place (#71).
+
+        Idempotent: rows already in the canonical checksummed form are skipped.
+        Corrupt checksummed rows are left untouched here — :meth:`clear_corrupt_embeddings`
+        plus a re-embed/recompute pass is the repair path for those. Returns per-table
+        counts of rows upgraded.
+        """
+        with self._lock, self._pool.checkout() as connection:
+            return self._migrate_embeddings_to_checksummed_conn(connection)
+
+    def _migrate_embeddings_to_checksummed_conn(self, connection: sqlite3.Connection) -> dict[str, int]:
+        upgraded = {"nodes": 0, "transcript_records": 0, "context_windows": 0}
+        for table in ("nodes", "transcript_records", "context_windows"):
+            # Scope to this tenant and pre-filter to non-checksummed blobs in SQL
+            # (a checksummed blob always starts with EMBEDDING_BLOB_MAGIC), so a
+            # multi-tenant DB only ever migrates the opening tenant's legacy rows
+            # and a fully-migrated tenant fetches nothing.
+            rows = connection.execute(
+                f"SELECT id, embedding FROM {table} "
+                "WHERE tenant_id = ? AND embedding IS NOT NULL AND substr(embedding, 1, 4) != ?",
+                (self.tenant_id, EMBEDDING_BLOB_MAGIC),
+            ).fetchall()
+            for row in rows:
+                blob = row["embedding"]
+                if not isinstance(blob, (bytes, bytearray)) or is_checksummed_embedding(bytes(blob)):
+                    continue
+                cursor = connection.execute(
+                    f"UPDATE {table} SET embedding = ? WHERE tenant_id = ? AND id = ?",
+                    (encode_embedding_blob(bytes(blob)), self.tenant_id, row["id"]),
+                )
+                if cursor.rowcount and cursor.rowcount > 0:
+                    upgraded[table] += 1
+        return upgraded
+
+    def clear_corrupt_embeddings(self) -> dict[str, int]:
+        """Null out this tenant's embeddings whose checksum fails so they can be rebuilt.
+
+        For ``nodes`` and ``transcript_records`` the row is set to ``embedding IS NULL``
+        and repopulated by :meth:`reembed_stale_embeddings`. For ``context_windows`` the
+        cached vector is dropped and the row is flagged ``embedding_stale = 1`` so it is
+        recomputed by :meth:`recompute_stale_window_embeddings` or lazily on the next
+        :meth:`get_window_embedding`. Returns per-table counts of rows cleared.
+        """
+        cleared = {"nodes": 0, "transcript_records": 0, "context_windows": 0}
+        with self._lock, self._pool.checkout() as connection:
+            for table in ("nodes", "transcript_records"):
+                rows = connection.execute(
+                    f"SELECT id, embedding FROM {table} WHERE tenant_id = ? AND embedding IS NOT NULL",
+                    (self.tenant_id,),
+                ).fetchall()
+                for row in rows:
+                    blob = row["embedding"]
+                    if not isinstance(blob, (bytes, bytearray)):
+                        continue
+                    blob = bytes(blob)
+                    if is_checksummed_embedding(blob) and decode_embedding_blob(blob) is None:
+                        connection.execute(
+                            f"UPDATE {table} SET embedding = NULL, embedding_model_id = '', embedding_dim = 0 "
+                            "WHERE tenant_id = ? AND id = ?",
+                            (self.tenant_id, row["id"]),
+                        )
+                        cleared[table] += 1
+            window_rows = connection.execute(
+                "SELECT id, embedding FROM context_windows WHERE tenant_id = ? AND embedding IS NOT NULL",
+                (self.tenant_id,),
+            ).fetchall()
+            for row in window_rows:
+                blob = row["embedding"]
+                if not isinstance(blob, (bytes, bytearray)):
+                    continue
+                blob = bytes(blob)
+                if is_checksummed_embedding(blob) and decode_embedding_blob(blob) is None:
+                    connection.execute(
+                        "UPDATE context_windows SET embedding = NULL, embedding_stale = 1, updated_at = ? "
+                        "WHERE tenant_id = ? AND id = ?",
+                        (utc_now().isoformat(), self.tenant_id, row["id"]),
+                    )
+                    cleared["context_windows"] += 1
+        return cleared
+
+    def recompute_stale_window_embeddings(self) -> int:
+        """Recompute embeddings for every window flagged ``embedding_stale = 1``.
+
+        Mirrors :meth:`reembed_stale_embeddings` for context windows (which have no
+        ``embedding_model_id`` column and are rebuilt from their member nodes via
+        :meth:`compute_window_embedding`). Returns the number of windows recomputed.
+        """
+        with self._lock, self._pool.checkout() as connection:
+            window_ids = [
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM context_windows WHERE tenant_id = ? AND embedding_stale = 1",
+                    (self.tenant_id,),
+                ).fetchall()
+            ]
+        recomputed = 0
+        for window_id in window_ids:
+            embedding = self.compute_window_embedding(window_id)
+            if embedding is None:
+                continue
+            with self._lock, self._pool.checkout() as connection:
+                self._save_window_embedding(connection, window_id, embedding)
+            recomputed += 1
+        return recomputed
 
     def reembed_stale_embeddings(self, *, batch_size: int = 100) -> dict[str, int]:
         """Re-embed stale transcript records and nodes in batch.
@@ -1716,7 +1900,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                             WHERE tenant_id = ? AND id = ?
                             """,
                             (
-                                self.embedding_model.to_bytes(embedding),
+                                self._encode_embedding(embedding),
                                 model_id,
                                 dim,
                                 _normalized_content_hash(row["transcript_text"]),
@@ -1738,7 +1922,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                             WHERE tenant_id = ? AND id = ?
                             """,
                             (
-                                self.embedding_model.to_bytes(embedding),
+                                self._encode_embedding(embedding),
                                 model_id,
                                 dim,
                                 _normalized_content_hash(row["transcript_text"]),
@@ -1787,7 +1971,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                             WHERE tenant_id = ? AND id = ?
                             """,
                             (
-                                self.embedding_model.to_bytes(embedding),
+                                self._encode_embedding(embedding),
                                 model_id,
                                 dim,
                                 self.tenant_id,
@@ -1808,7 +1992,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                             WHERE tenant_id = ? AND id = ?
                             """,
                             (
-                                self.embedding_model.to_bytes(embedding),
+                                self._encode_embedding(embedding),
                                 model_id,
                                 dim,
                                 self.tenant_id,
@@ -2153,7 +2337,11 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
             if row is None:
                 return None
             if row["embedding"] is not None and not bool(row["embedding_stale"]):
-                return self.embedding_model.from_bytes(row["embedding"])
+                decoded = self._decode_embedding(row["embedding"])
+                if decoded is not None:
+                    return decoded
+                # Corrupt cached embedding (failed checksum): fall through to
+                # recompute and re-save a fresh checksummed vector (issue #71).
 
         embedding = self.compute_window_embedding(window_id)
         if embedding is None:
@@ -2169,7 +2357,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
             SET embedding = ?, embedding_stale = 0, updated_at = ?
             WHERE tenant_id = ? AND id = ?
             """,
-            (self.embedding_model.to_bytes(embedding), utc_now().isoformat(), self.tenant_id, window_id),
+            (self._encode_embedding(embedding), utc_now().isoformat(), self.tenant_id, window_id),
         )
 
     def extract_window_entities(self, window_id: str) -> list[dict[str, str]]:
@@ -2382,7 +2570,9 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                         continue
                 candidates.append(node)
                 if row["embedding"] is not None:
-                    embeddings_by_id[node.id] = self.embedding_model.from_bytes(row["embedding"])
+                    decoded_embedding = self._decode_embedding(row["embedding"])
+                    if decoded_embedding is not None:
+                        embeddings_by_id[node.id] = decoded_embedding
 
             # Apply temporal validity filtering
             candidates = _filter_valid_nodes(
@@ -3852,7 +4042,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         evidence_records = evidence_from_lines(document.evidence_lines)
         content = document.content.strip() or document.label
         embedding_vector, embedding_model_id, embedding_dim = self._embed_with_metadata(content)
-        embedding_bytes = self.embedding_model.to_bytes(embedding_vector)
+        embedding_bytes = self._encode_embedding(embedding_vector)
         if row is None:
             created_at = self._parse_optional_datetime(document.frontmatter.get("created_at")) or utc_now()
             updated_at = utc_now()
@@ -4004,7 +4194,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
                 node.node_type.value,
                 json.dumps(node.tags),
                 _encode_metadata(node.metadata),
-                self.embedding_model.to_bytes(embedding_vector),
+                self._encode_embedding(embedding_vector),
                 node.embedding_model_id,
                 node.embedding_dim,
                 "",
@@ -4272,7 +4462,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         embedding_dim = int(raw_node.get("embedding_dim", 0) or 0)
         if embedding is None:
             embedding_vector, embedding_model_id, embedding_dim = self._embed_with_metadata(raw_node["content"])
-            embedding = self.embedding_model.to_bytes(embedding_vector)
+            embedding = self._encode_embedding(embedding_vector)
         connection.execute(
             """
             INSERT INTO nodes (
@@ -4317,7 +4507,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
             embedding_vector, embedding_model_id, embedding_dim = self._embed_with_metadata(
                 raw_transcript["transcript_text"]
             )
-            embedding = self.embedding_model.to_bytes(embedding_vector)
+            embedding = self._encode_embedding(embedding_vector)
         connection.execute(
             """
             INSERT INTO transcript_records (
@@ -4354,7 +4544,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
             embedding_vector, embedding_model_id, embedding_dim = self._embed_with_metadata(
                 raw_transcript["transcript_text"]
             )
-            embedding = self.embedding_model.to_bytes(embedding_vector)
+            embedding = self._encode_embedding(embedding_vector)
         connection.execute(
             """
             UPDATE transcript_records
@@ -4476,7 +4666,7 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         embedding_dim = int(raw_node.get("embedding_dim", 0) or 0)
         if embedding is None:
             embedding_vector, embedding_model_id, embedding_dim = self._embed_with_metadata(raw_node["content"])
-            embedding = self.embedding_model.to_bytes(embedding_vector)
+            embedding = self._encode_embedding(embedding_vector)
         connection.execute(
             """
             UPDATE nodes
