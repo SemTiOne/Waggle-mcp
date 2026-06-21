@@ -93,7 +93,6 @@ from waggle.recursive_context import (
     RecursiveContextController,
 )
 from waggle.runtime_context import runtime_context
-from waggle.runtime_info import SERVER_NAME, WAGGLE_SERVER_INFO
 from waggle.serializer import (
     serialize_abhi_chunk_load,
     serialize_abhi_inspect,
@@ -1674,11 +1673,10 @@ class WaggleServer:
 
     def initialization_options(self) -> InitializationOptions:
         return InitializationOptions(
-            server_name=SERVER_NAME,
-            server_version=__version__,
+            server_name="waggle",
+            server_version="0.2.0",
             capabilities=self.server.get_capabilities(
-                notification_options=NotificationOptions(),
-                experimental_capabilities={"waggle_server_info": WAGGLE_SERVER_INFO},
+                notification_options=NotificationOptions(), experimental_capabilities={}
             ),
         )
 
@@ -3946,13 +3944,7 @@ async def run_stdio(config: AppConfig) -> None:
     app = get_app(config)
     graph = app._root_graph
     em = graph.embedding_model
-    is_bundled_runtime = os.environ.get("WAGGLE_BUNDLED_RUNTIME", "").strip() in {"1", "true", "yes"}
-    if (
-        not is_bundled_runtime
-        and not config.is_fast_mode
-        and hasattr(em, "start_background_warmup")
-        and not getattr(em, "_warmup_started", False)
-    ):
+    if not config.is_fast_mode and hasattr(em, "start_background_warmup") and not getattr(em, "_warmup_started", False):
         # Kick off background warmup so the first semantic call is fast.
         em.start_background_warmup()
     if config.is_strict_mode:
@@ -5306,6 +5298,20 @@ def _run_doctor(config: AppConfig, *, fix: bool = False, json_output: bool = Fal
                     f"{windows_rebuilt} window embeddings."
                 )
                 ok_items.append("Corrupt embeddings cleared and rebuilt")
+                store_health = graph.get_embedding_store_health()
+                checksum_failures = (
+                    store_health["node_checksum_failures"]
+                    + store_health["transcript_checksum_failures"]
+                    + store_health["window_checksum_failures"]
+                )
+            if fix and store_health["window_stale_rows"]:
+                # Repair stale window embeddings even when nothing failed its
+                # checksum (membership changes flag windows stale without corrupting
+                # anything); the corrupt-clear path above only runs on failures.
+                windows_rebuilt = graph.recompute_stale_window_embeddings()
+                ok(f"Recomputed stale context-window embeddings: {windows_rebuilt} window rows.")
+                if windows_rebuilt:
+                    ok_items.append("Stale context-window embeddings recomputed")
                 store_health = graph.get_embedding_store_health()
                 checksum_failures = (
                     store_health["node_checksum_failures"]

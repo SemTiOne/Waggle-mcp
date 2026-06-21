@@ -1858,21 +1858,38 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         :meth:`compute_window_embedding`). Returns the number of windows recomputed.
         """
         with self._lock, self._pool.checkout() as connection:
-            window_ids = [
-                row["id"]
-                for row in connection.execute(
-                    "SELECT id FROM context_windows WHERE tenant_id = ? AND embedding_stale = 1",
-                    (self.tenant_id,),
-                ).fetchall()
-            ]
+            window_rows = connection.execute(
+                "SELECT id, updated_at FROM context_windows WHERE tenant_id = ? AND embedding_stale = 1",
+                (self.tenant_id,),
+            ).fetchall()
         recomputed = 0
-        for window_id in window_ids:
+        for window_row in window_rows:
+            window_id = window_row["id"]
+            observed_updated_at = window_row["updated_at"]
             embedding = self.compute_window_embedding(window_id)
             if embedding is None:
                 continue
+            # The lock was released during compute. Only clear the stale flag if the
+            # row is still the one we read (every stale-marking path bumps
+            # updated_at): if membership changed and re-staled it meanwhile, the
+            # WHERE misses and we leave it stale rather than save an outdated vector.
             with self._lock, self._pool.checkout() as connection:
-                self._save_window_embedding(connection, window_id, embedding)
-            recomputed += 1
+                cursor = connection.execute(
+                    """
+                    UPDATE context_windows
+                    SET embedding = ?, embedding_stale = 0, updated_at = ?
+                    WHERE tenant_id = ? AND id = ? AND embedding_stale = 1 AND updated_at = ?
+                    """,
+                    (
+                        self._encode_embedding(embedding),
+                        utc_now().isoformat(),
+                        self.tenant_id,
+                        window_id,
+                        observed_updated_at,
+                    ),
+                )
+            if cursor.rowcount and cursor.rowcount > 0:
+                recomputed += 1
         return recomputed
 
     def reembed_stale_embeddings(self, *, batch_size: int = 100) -> dict[str, int]:
@@ -4491,13 +4508,21 @@ class MemoryGraph(TranscriptMixin, TraversalMixin, MutationMixin, MemoryGraphBas
         written verbatim, so a legacy blob stayed un-checksummed and a corrupt blob
         was persisted as-is and never re-embedded. This validates first:
 
-        * a supplied blob that decodes (legacy or checksummed) → canonical
-          checksummed form, keeping the supplied ``model_id``/``dim``;
-        * a missing or corrupt blob → re-embed from ``text`` (a fresh checksummed
-          vector with the current model id/dim).
+        * a supplied blob the model can decode (legacy or checksummed) with valid
+          metadata → canonical checksummed form, keeping the supplied
+          ``model_id``/``dim``;
+        * a missing, corrupt, or model-unreadable blob (or one with no usable
+          metadata) → re-embed from ``text`` (a fresh checksummed vector with the
+          current model id/dim).
         """
-        if isinstance(embedding, (bytes, bytearray)) and decode_embedding_blob(bytes(embedding)) is not None:
-            return self._ensure_encoded_embedding(bytes(embedding)), model_id, dim
+        if isinstance(embedding, (bytes, bytearray)):
+            blob = bytes(embedding)
+            # Validate with the model decoder, not just the wrapper: a CRC-valid
+            # blob the model can't parse would otherwise be preserved here and then
+            # read back as "missing" by every _decode_embedding while health stays
+            # clean. Require real metadata too, so a kept blob isn't left stale.
+            if self._decode_embedding(blob) is not None and model_id.strip() and dim > 0:
+                return self._ensure_encoded_embedding(blob), model_id, dim
         vector, new_model_id, new_dim = self._embed_with_metadata(text)
         return self._encode_embedding(vector), new_model_id, new_dim
 

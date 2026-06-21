@@ -49,13 +49,19 @@ def make_graph(tmp_path: Path) -> MemoryGraph:
 def _node_embedding_blob(graph: MemoryGraph, node_id: str) -> bytes:
     with sqlite3.connect(graph.db_path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT embedding FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        row = conn.execute(
+            "SELECT embedding FROM nodes WHERE tenant_id = ? AND id = ?",
+            (graph.tenant_id, node_id),
+        ).fetchone()
     return bytes(row["embedding"])
 
 
 def _write_node_embedding(graph: MemoryGraph, node_id: str, blob: bytes) -> None:
     with sqlite3.connect(graph.db_path) as conn:
-        conn.execute("UPDATE nodes SET embedding = ? WHERE id = ?", (blob, node_id))
+        conn.execute(
+            "UPDATE nodes SET embedding = ? WHERE tenant_id = ? AND id = ?",
+            (blob, graph.tenant_id, node_id),
+        )
         conn.commit()
 
 
@@ -111,7 +117,7 @@ def test_ensure_encoded_is_idempotent():
     assert once == twice
 
 
-# ── Storage-level tests (covers acceptance criteria 1-4) ──────────────────────────────
+# ── storage-level tests (acceptance criteria 1-4) ──────────────────────────────
 
 
 def test_new_writes_are_checksummed(tmp_path: Path):
@@ -206,13 +212,16 @@ def test_legacy_embedding_still_reads_correctly(tmp_path: Path):
     assert graph._node_cosine_similarity(node_a, node_b) is not None
 
 
-# ── Context_windows coverage ───────────────────────
+# ── context_windows coverage (reviewer follow-up on #71) ───────────────────────
 
 
 def _window_embedding_blob(graph: MemoryGraph, window_id: str) -> bytes | None:
     with sqlite3.connect(graph.db_path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT embedding FROM context_windows WHERE id = ?", (window_id,)).fetchone()
+        row = conn.execute(
+            "SELECT embedding FROM context_windows WHERE tenant_id = ? AND id = ?",
+            (graph.tenant_id, window_id),
+        ).fetchone()
     if row is None or row["embedding"] is None:
         return None
     return bytes(row["embedding"])
@@ -220,7 +229,10 @@ def _window_embedding_blob(graph: MemoryGraph, window_id: str) -> bytes | None:
 
 def _write_window_embedding(graph: MemoryGraph, window_id: str, blob: bytes) -> None:
     with sqlite3.connect(graph.db_path) as conn:
-        conn.execute("UPDATE context_windows SET embedding = ? WHERE id = ?", (blob, window_id))
+        conn.execute(
+            "UPDATE context_windows SET embedding = ? WHERE tenant_id = ? AND id = ?",
+            (blob, graph.tenant_id, window_id),
+        )
         conn.commit()
 
 
@@ -310,7 +322,7 @@ def test_window_legacy_row_is_migrated(tmp_path: Path):
     assert decode_embedding_blob(blob) == raw
 
 
-# ── Multi-tenant scoping + crash-safety ───────────────────
+# ── multi-tenant scoping + crash-safety (second review round) ───────────────────
 
 
 def test_health_and_clear_are_tenant_scoped(tmp_path: Path):
@@ -382,7 +394,7 @@ def test_multi_intent_query_survives_corrupt_embedding(tmp_path: Path):
     assert result is not None
 
 
-# ── Decode hardening: corrupted magic, misaligned payload, deserialization ─
+# ── decode hardening: corrupted magic, misaligned payload, deserialization (review 3) ─
 
 
 def _corrupt_node_magic(graph: MemoryGraph, node_id: str) -> None:
@@ -446,7 +458,7 @@ def test_migration_does_not_launder_corrupt_magic(tmp_path: Path):
     assert graph.get_embedding_store_health()["node_checksum_failures"] == 1
 
 
-# ── Import / backfill validation ─────────────────────────────────────
+# ── import / backfill validation (review 5) ─────────────────────────────────────
 
 
 def _make_node_blob(values: list[float]) -> bytes:
@@ -563,3 +575,76 @@ def test_transcript_backfill_reembeds_damaged_checksummed_blob(tmp_path: Path):
     # so the exact length is what distinguishes re-embed from launder.
     assert len(decoded) == 8 * np.dtype(np.float32).itemsize
     assert reopened.get_embedding_store_health()["transcript_checksum_failures"] == 0
+
+
+# ── model-decode validation + window recompute concurrency (review 6) ───────────
+
+
+def test_coerce_reembeds_model_unreadable_blob(tmp_path: Path):
+    class RaisingModel(FakeEmbeddingModel):
+        def from_bytes(self, data: bytes) -> np.ndarray:
+            raise ValueError("model cannot parse this")
+
+    graph = MemoryGraph(tmp_path / "memory.db", RaisingModel())
+    # CRC-valid wrapper, but the model rejects it: must re-embed, not preserve a
+    # blob that every later read would treat as missing.
+    blob = encode_embedding_blob(_make_node_blob([0.0] * 8))
+    result, model_id, dim = graph._coerce_imported_embedding(blob, text="rebuild", model_id="snap", dim=8)
+    assert is_checksummed_embedding(result)
+    assert model_id == graph._current_embedding_model_id()
+    assert dim == 8
+
+
+def test_coerce_reembeds_when_metadata_missing(tmp_path: Path):
+    graph = make_graph(tmp_path)
+    legacy = _make_node_blob([0.1] * 8)  # decodable, but no model metadata supplied
+    result, model_id, dim = graph._coerce_imported_embedding(legacy, text="rebuild", model_id="", dim=0)
+    # Without usable model_id/dim the row would read as stale forever; re-embed instead.
+    assert model_id == graph._current_embedding_model_id()
+    assert dim == 8
+    assert decode_embedding_blob(result) is not None
+
+
+def test_recompute_repairs_uncorrupted_stale_window(tmp_path: Path):
+    graph, window_id = _window_with_embedding(tmp_path)
+    # Flag stale without corrupting anything (mirrors a membership change).
+    with sqlite3.connect(graph.db_path) as conn:
+        conn.execute(
+            "UPDATE context_windows SET embedding_stale = 1, updated_at = ? WHERE tenant_id = ? AND id = ?",
+            ("2025-02-02T00:00:00+00:00", graph.tenant_id, window_id),
+        )
+        conn.commit()
+    assert graph.get_context_window(window_id).embedding_stale is True
+    assert graph.get_embedding_store_health()["window_checksum_failures"] == 0
+
+    assert graph.recompute_stale_window_embeddings() == 1
+    assert graph.get_context_window(window_id).embedding_stale is False
+
+
+def test_recompute_window_skips_when_restaled_during_compute(tmp_path: Path, monkeypatch):
+    graph, window_id = _window_with_embedding(tmp_path)
+    with sqlite3.connect(graph.db_path) as conn:
+        conn.execute(
+            "UPDATE context_windows SET embedding_stale = 1, updated_at = ? WHERE tenant_id = ? AND id = ?",
+            ("2025-03-03T00:00:00+00:00", graph.tenant_id, window_id),
+        )
+        conn.commit()
+
+    real_compute = graph.compute_window_embedding
+
+    def racing_compute(wid: str):
+        # Simulate another process re-staling the window (which bumps updated_at)
+        # after we read it but before we save — the guard must skip the save.
+        with sqlite3.connect(graph.db_path) as conn:
+            conn.execute(
+                "UPDATE context_windows SET embedding_stale = 1, updated_at = ? WHERE tenant_id = ? AND id = ?",
+                ("2099-01-01T00:00:00+00:00", graph.tenant_id, wid),
+            )
+            conn.commit()
+        return real_compute(wid)
+
+    monkeypatch.setattr(graph, "compute_window_embedding", racing_compute)
+    # The optimistic WHERE (updated_at = observed) misses, so nothing is saved...
+    assert graph.recompute_stale_window_embeddings() == 0
+    # ...and the window is left stale for a later, clean recompute.
+    assert graph.get_context_window(window_id).embedding_stale is True
